@@ -77,6 +77,8 @@ tests/                pytest suite (config, safety, annotation parsing)
 
 ## Roadmap
 
+The full phase-by-phase plan is in [MILESTONES.md](MILESTONES.md).
+
 - [ ] Live meeting capture (PipeWire monitor + Whisper) with a rolling transcript
 - [ ] Voice output for explanations
 - [ ] Wayland screen capture via the XDG desktop portal
