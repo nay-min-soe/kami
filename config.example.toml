@@ -1,0 +1,20 @@
+# Copy to ~/.config/kami/config.toml and edit.
+
+[llm]
+# Any OpenAI-compatible endpoint works. OpenRouter is the default.
+base_url = "https://openrouter.ai/api/v1"
+# "openrouter/auto" lets OpenRouter pick. For "Explain screen" choose a
+# vision-capable model from https://openrouter.ai/models
+model = "openrouter/auto"
+# Prefer the KAMI_API_KEY or OPENROUTER_API_KEY environment variable.
+# A key set here is used only if neither variable is set.
+api_key = ""
+
+[hotkey]
+# Used by the built-in listener (X11 + the optional pynput extra).
+# On Wayland, bind your desktop shortcut to the command:  kami toggle
+toggle = "<ctrl>+<alt>+k"
+
+[app_control]
+# Kami may only act inside these apps (executable names, lowercase).
+allowed_apps = ["firefox", "code"]

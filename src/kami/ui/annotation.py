@@ -1,0 +1,89 @@
+"""Click-through layer that doodles on the screen: circles, arrows and notes."""
+from __future__ import annotations
+
+import math
+
+from PySide6.QtCore import QPointF, QRect, QRectF, Qt, QTimer
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import QWidget
+
+from kami.modes.learning import Annotation
+
+INK = QColor("#FF6B9A")
+NOTE_BG = QColor(30, 27, 46, 220)
+NOTE_FG = QColor("#FFC93C")
+PAD = 60  # room for labels just outside the region
+
+
+class AnnotationLayer(QWidget):
+    def __init__(self, hide_after_ms: int = 25_000) -> None:
+        super().__init__(
+            None,
+            Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+            | Qt.WindowTransparentForInput,
+        )
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self._items: list[Annotation] = []
+        self._region = QRectF()
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(hide_after_ms)
+        self._timer.timeout.connect(self.clear)
+
+    def show_annotations(self, region: QRect, items: list[Annotation]) -> None:
+        self.setGeometry(region.adjusted(-PAD, -PAD, PAD, PAD))
+        self._region = QRectF(PAD, PAD, region.width(), region.height())
+        self._items = items
+        self.show()
+        self.update()
+        self._timer.start()
+
+    def clear(self) -> None:
+        self._items = []
+        self.hide()
+
+    def _pt(self, x: float, y: float) -> QPointF:
+        r = self._region
+        return QPointF(r.left() + x * r.width(), r.top() + y * r.height())
+
+    def _note(self, p: QPainter, at: QPointF, text: str) -> None:
+        if not text:
+            return
+        metrics = p.fontMetrics()
+        w, h = metrics.horizontalAdvance(text) + 20, metrics.height() + 10
+        box = QRectF(at.x(), at.y(), w, h)
+        box.moveLeft(max(4, min(box.left(), self.width() - w - 4)))
+        box.moveTop(max(4, min(box.top(), self.height() - h - 4)))
+        p.setPen(Qt.NoPen)
+        p.setBrush(NOTE_BG)
+        p.drawRoundedRect(box, 8, 8)
+        p.setPen(NOTE_FG)
+        p.drawText(box, Qt.AlignCenter, text)
+
+    def paintEvent(self, _event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setFont(QFont("Sans", 13, QFont.Bold))
+        pen = QPen(INK, 5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+        side = min(self._region.width(), self._region.height())
+
+        for a in self._items:
+            p.setPen(pen)
+            p.setBrush(Qt.NoBrush)
+            if a.type == "circle":
+                c, rad = self._pt(a.x, a.y), a.r * side
+                p.drawEllipse(c, rad * 1.15, rad)          # a bit wobbly, like a marker
+                self._note(p, QPointF(c.x() + rad, c.y() - rad - 10), a.label)
+            elif a.type == "arrow":
+                start, end = self._pt(a.x, a.y), self._pt(a.x2, a.y2)
+                mid = (start + end) / 2 + QPointF(0, -25)
+                path = QPainterPath(start)
+                path.quadTo(mid, end)
+                p.drawPath(path)
+                angle = math.atan2(end.y() - mid.y(), end.x() - mid.x())
+                for wing in (angle + 2.6, angle - 2.6):
+                    p.drawLine(end, end + QPointF(math.cos(wing), math.sin(wing)) * 22)
+                self._note(p, start + QPointF(-10, 8), a.label)
+            elif a.type == "text":
+                self._note(p, self._pt(a.x, a.y), a.label)
