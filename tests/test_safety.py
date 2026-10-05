@@ -30,3 +30,7 @@ def test_non_sensitive_action_skips_dialog():
         raise AssertionError("should not ask")
     action = ProposedAction(app="firefox", description="open", sensitive=False)
     assert gate(action, POLICY, confirm=never) is True
+
+
+def test_ci_turns_red():
+    assert False, "throwaway: proves CI fails on a broken test"
