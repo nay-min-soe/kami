@@ -6,11 +6,15 @@ sentence for the panel. The worker shows str(exc), so no raw httpx text reaches 
 from __future__ import annotations
 
 import base64
+import logging
+import time
 from urllib.parse import urlsplit
 
 import httpx
 
 from kami.config import LLMConfig
+
+log = logging.getLogger(__name__)
 
 PROVIDER_DETAIL_MAX = 200  # characters of the provider's own error message we pass on
 
@@ -37,6 +41,18 @@ class LLMClient:
         self.http = http or httpx.Client(timeout=timeout)
 
     def chat(self, messages: list[dict]) -> str:
+        start = time.monotonic()
+        try:
+            content = self._chat(messages)
+        except LLMError as exc:
+            # Only the kind and model: never the prompt, the reply or the key.
+            log.warning("chat failed kind=%s model=%s took=%.1fs",
+                        exc.kind, self.cfg.model, time.monotonic() - start)
+            raise
+        log.info("chat ok model=%s took=%.1fs", self.cfg.model, time.monotonic() - start)
+        return content
+
+    def _chat(self, messages: list[dict]) -> str:
         if not self.cfg.api_key:
             raise MissingAPIKey()
         host = urlsplit(self.cfg.base_url).hostname or self.cfg.base_url
