@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import logging
 import os
 import sys
 
@@ -13,11 +14,15 @@ from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
+from kami import __version__
 from kami.config import ConfigError, load_config
 from kami.hotkey import HotkeyListener
+from kami.logs import remember_secret, setup_logging
 from kami.ui.overlay import KamiOverlay
 
 SOCKET_NAME = f"kami-{os.getuid()}"
+
+log = logging.getLogger("kami")
 
 
 def _send_toggle() -> bool:
@@ -46,6 +51,7 @@ def _tray_icon() -> QIcon:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    log_path = setup_logging()
     app = QApplication(sys.argv[:1])
     app.setApplicationName("Kami")
     app.setQuitOnLastWindowClosed(False)
@@ -56,14 +62,18 @@ def main(argv: list[str] | None = None) -> int:
         print("Kami isn't running. Start it with: kami")
         return 1
 
+    log.info("kami %s starting, session=%s", __version__,
+             os.environ.get("XDG_SESSION_TYPE", "unknown"))
     try:
         config = load_config()
     except ConfigError as exc:
+        log.error("config error: %s", exc)
         print(f"Kami can't start: {exc}", file=sys.stderr)
         QMessageBox.critical(None, "Kami can't start", str(exc))
         return 2
+    remember_secret(config.llm.api_key)
     for warning in config.warnings:
-        print(f"Config warning: {warning}", file=sys.stderr)
+        log.warning("config warning: %s", warning)  # stderr handler prints it too
     overlay = KamiOverlay(config)
 
     QLocalServer.removeServer(SOCKET_NAME)  # clean up a stale socket after a crash
@@ -83,6 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     hotkey = HotkeyListener(config.hotkey)
     hotkey.triggered.connect(overlay.toggle)
     status = hotkey.start()
+    log.info("model=%s hotkey: %s", config.llm.model, status)
 
     tray = QSystemTrayIcon(_tray_icon())
     menu = QMenu()
@@ -98,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
                            if reason == QSystemTrayIcon.Trigger else None)
     tray.show()
 
-    print(f"Kami is running. {status}")
+    print(f"Kami is running. {status}\nLogs: {log_path}")
     overlay.summon()
     code = app.exec()
     hotkey.stop()

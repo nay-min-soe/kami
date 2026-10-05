@@ -1,7 +1,13 @@
 """Run blocking calls (LLM requests) off the UI thread."""
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
+
+from kami.llm import LLMError
+
+log = logging.getLogger(__name__)
 
 
 class _Signals(QObject):
@@ -16,9 +22,15 @@ class _Task(QRunnable):
         self.signals = _Signals()
 
     def run(self) -> None:
+        name = getattr(self.fn, "__qualname__", repr(self.fn))
+        log.info("task %s started", name)
         try:
             result = self.fn(*self.args, **self.kwargs)
         except Exception as exc:  # surface every error to the UI
+            # LLMErrors are expected and already logged; anything else keeps its
+            # traceback in the log file, never in the panel.
+            log.warning("task %s failed: %s", name, type(exc).__name__,
+                        exc_info=not isinstance(exc, LLMError))
             self.signals.failed.emit(str(exc))
         else:
             self.signals.done.emit(result)

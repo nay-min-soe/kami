@@ -65,6 +65,7 @@ Misspelled keys are reported as warnings in the terminal.
 src/kami/
   app.py              entry point, tray icon, single-instance socket (`kami toggle`)
   config.py           ~/.config/kami/config.toml (validated) + env var API key
+  logs.py             log file with key redaction
   hotkey.py           global hotkey (X11 via pynput)
   safety.py           allowlist + confirm-before-sensitive-actions gate
   llm/client.py       OpenRouter / OpenAI-compatible chat client (text + images)
@@ -91,6 +92,12 @@ The full phase-by-phase plan is in [MILESTONES.md](MILESTONES.md).
 - [ ] Multi-monitor polish
 - [ ] More app-control actions (each with its own risk description)
 - [ ] Voice commands for hands-free control
+
+## Troubleshooting
+
+Kami writes a log to `~/.local/state/kami/kami.log` (rotated at 1 MB). It records what
+happened and how long it took, never your API key, screenshots, questions or answers.
+For more detail, start Kami with `KAMI_LOG_LEVEL=DEBUG kami`.
 
 ## Development
 
