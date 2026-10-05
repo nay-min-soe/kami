@@ -1,5 +1,7 @@
 # Kami 👻
 
+[![CI](https://github.com/nay-min-soe/kami/actions/workflows/ci.yml/badge.svg)](https://github.com/nay-min-soe/kami/actions/workflows/ci.yml)
+
 **A hotkey-summoned AI sidekick for the Linux desktop.**
 Press a key, Kami pops up. It helps in meetings, explains anything on your screen
 by doodling on it like a teacher with a marker, and (carefully) controls your apps.
@@ -89,8 +91,12 @@ The full phase-by-phase plan is in [MILESTONES.md](MILESTONES.md).
 ## Development
 
 ```bash
+pip install -e ".[dev]"
 pytest
 ```
+
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `pytest` on
+Python 3.11 and 3.12 for every push to `main` and every pull request.
 
 ## License
 
