@@ -11,9 +11,9 @@ import sys
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
-from kami.config import load_config
+from kami.config import ConfigError, load_config
 from kami.hotkey import HotkeyListener
 from kami.ui.overlay import KamiOverlay
 
@@ -56,7 +56,14 @@ def main(argv: list[str] | None = None) -> int:
         print("Kami isn't running. Start it with: kami")
         return 1
 
-    config = load_config()
+    try:
+        config = load_config()
+    except ConfigError as exc:
+        print(f"Kami can't start: {exc}", file=sys.stderr)
+        QMessageBox.critical(None, "Kami can't start", str(exc))
+        return 2
+    for warning in config.warnings:
+        print(f"Config warning: {warning}", file=sys.stderr)
     overlay = KamiOverlay(config)
 
     QLocalServer.removeServer(SOCKET_NAME)  # clean up a stale socket after a crash
