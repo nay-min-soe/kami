@@ -46,6 +46,10 @@ kami            # starts Kami (tray icon + panel)
 Needs Python 3.11+. For **Explain screen**, set `model` in the config to a
 vision-capable model from [https://openrouter.ai/models](https://openrouter.ai/models).
 
+If the config file has a mistake (bad TOML, a wrong type such as `allowed_apps = "firefox"`
+instead of `["firefox"]`), Kami won't start and tells you the file, the key and the fix.
+Misspelled keys are reported as warnings in the terminal.
+
 ### Hotkey: X11 vs Wayland
 
 - **X11:** the built-in listener uses `<ctrl>+<alt>+k` (change it in the config).
@@ -60,7 +64,7 @@ vision-capable model from [https://openrouter.ai/models](https://openrouter.ai/m
 ```
 src/kami/
   app.py              entry point, tray icon, single-instance socket (`kami toggle`)
-  config.py           ~/.config/kami/config.toml + env var API key
+  config.py           ~/.config/kami/config.toml (validated) + env var API key
   hotkey.py           global hotkey (X11 via pynput)
   safety.py           allowlist + confirm-before-sensitive-actions gate
   llm/client.py       OpenRouter / OpenAI-compatible chat client (text + images)
@@ -74,7 +78,7 @@ src/kami/
     annotation.py     click-through layer that draws circles, arrows, notes
     confirm.py        the "Kami wants to..." dialog
     worker.py         runs LLM calls off the UI thread
-tests/                pytest suite (config, safety, annotation parsing)
+tests/                pytest suite (config, safety, app control, meetings, annotation parsing)
 ```
 
 ## Roadmap
