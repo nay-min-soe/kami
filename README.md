@@ -9,12 +9,12 @@ by doodling on it like a teacher with a marker, and (carefully) controls your ap
 
 ## What it does
 
-| Mode | What you get | Status |
-|---|---|---|
-| **Ask** | Type a question in the pop-up panel | ✅ Works |
-| **Explain screen** | Drag a box around anything (a YouTube lesson, code, a chart). Kami explains it and draws circles, arrows and short notes **on the screen itself** | ✅ Works (X11; see Wayland notes) |
-| **Meeting notes** | Transcripts, notes and quick research | 🟡 Notes from a pasted transcript work; live audio capture is TODO |
-| **App control** | Hands-free actions inside allowed apps | 🟡 Safety gate + "launch app" done; more actions TODO |
+| Mode                     | What you get                                                                                                                                           | Status                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| **Ask**            | Type a question in the pop-up panel                                                                                                                    | ✅ Works                                                           |
+| **Explain screen** | Drag a box around anything (a YouTube lesson, code, a chart). Kami explains it and draws circles, arrows and short notes **on the screen itself** | ✅ Works (X11; see Wayland notes)                                  |
+| **Meeting notes**  | Transcripts, notes and quick research                                                                                                                  | 🟡 Notes from a pasted transcript work; live audio capture is TODO |
+| **App control**    | Hands-free actions inside allowed apps                                                                                                                 | 🟡 Safety gate + "launch app" done; more actions TODO              |
 
 ## The safety rule
 
@@ -42,7 +42,7 @@ kami            # starts Kami (tray icon + panel)
 ```
 
 Needs Python 3.11+. For **Explain screen**, set `model` in the config to a
-vision-capable model from <https://openrouter.ai/models>.
+vision-capable model from [https://openrouter.ai/models](https://openrouter.ai/models).
 
 ### Hotkey: X11 vs Wayland
 

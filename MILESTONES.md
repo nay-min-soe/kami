@@ -38,7 +38,7 @@ Already in the repo.
 
 ## Phase 1 — Foundation hardening (v0.2)
 
-**Goal:** make what exists reliable before adding features.
+**Goal:** make what exists reliable before adding features. Task plans: [plans/phase-1/](plans/phase-1/README.md)
 
 - [ ] CI: GitHub Actions running `pytest` on Python 3.11 and 3.12
 - [ ] Linting: add `ruff` to the `dev` extra and to CI
