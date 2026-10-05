@@ -1,7 +1,6 @@
-"""Entry point.
+"""Starts the Qt app: tray icon, panel, hotkey and the single-instance socket.
 
-    kami          start Kami (or toggle it if it's already running)
-    kami toggle   show/hide the running Kami (bind this to a desktop shortcut)
+Called by kami.cli for `kami` and `kami toggle` (see cli.py for all commands).
 """
 from __future__ import annotations
 
