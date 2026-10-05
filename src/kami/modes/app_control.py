@@ -5,6 +5,7 @@ per action kind; only "launch" exists so far.
 """
 from __future__ import annotations
 
+import os  # throwaway: unused import
 import shutil
 import subprocess
 from collections.abc import Callable
