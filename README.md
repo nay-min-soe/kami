@@ -92,11 +92,13 @@ The full phase-by-phase plan is in [MILESTONES.md](MILESTONES.md).
 
 ```bash
 pip install -e ".[dev]"
-pytest
+ruff check .     # lint
+pytest           # tests
 ```
 
 CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `pytest` on
-Python 3.11 and 3.12 for every push to `main` and every pull request.
+Python 3.11 and 3.12, plus `ruff check .` once, for every push to `main` and every
+pull request.
 
 ## License
 
