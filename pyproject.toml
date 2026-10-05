@@ -19,7 +19,7 @@ hotkey = ["pynput>=1.7"]   # global hotkey on X11
 dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
-kami = "kami.app:main"
+kami = "kami.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -55,18 +55,36 @@ class LLMClient:
     def _chat(self, messages: list[dict]) -> str:
         if not self.cfg.api_key:
             raise MissingAPIKey()
-        host = urlsplit(self.cfg.base_url).hostname or self.cfg.base_url
+        body = self._request("POST", "/chat/completions", self.timeout, json={
+            "model": self.cfg.model, "messages": messages})
         try:
-            response = self.http.post(
-                f"{self.cfg.base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.cfg.api_key}",
-                    "X-Title": "Kami",
-                },
-                json={"model": self.cfg.model, "messages": messages},
-            )
+            content = body["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError):
+            content = None
+        if not isinstance(content, str):
+            raise LLMError("bad_response", "The model sent back something Kami couldn't read. "
+                                           "Try again, or pick another model.")
+        return content
+
+    def list_models(self, timeout: float = 5.0) -> list[dict]:
+        """The endpoint's model list (GET /models). Free: it sends no prompt and uses no tokens."""
+        body = self._request("GET", "/models", timeout)
+        models = body.get("data")
+        if not isinstance(models, list):
+            raise LLMError("bad_response", "The endpoint's model list couldn't be read.")
+        return [m for m in models if isinstance(m, dict)]
+
+    def _request(self, method: str, path: str, timeout: float, **kwargs) -> dict:
+        """Send one request and return the JSON body, or raise a plain-language LLMError."""
+        host = urlsplit(self.cfg.base_url).hostname or self.cfg.base_url
+        headers = {"X-Title": "Kami"}
+        if self.cfg.api_key:
+            headers["Authorization"] = f"Bearer {self.cfg.api_key}"
+        try:
+            response = self.http.request(method, f"{self.cfg.base_url}{path}",
+                                         headers=headers, timeout=timeout, **kwargs)
         except httpx.TimeoutException as exc:
-            raise LLMError("timeout", f"The model took longer than {self.timeout:.0f} s "
+            raise LLMError("timeout", f"The model took longer than {timeout:.0f} s "
                                       "to answer. Try again.") from exc
         except httpx.TransportError as exc:
             raise LLMError("network", f"Can't reach {host}. Check your internet connection "
@@ -80,14 +98,7 @@ class LLMClient:
         if not response.is_success or error:
             # OpenRouter can also report a failure inside a 200 reply, with no choices.
             raise self._error(response.status_code, error)
-        try:
-            content = body["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError):
-            content = None
-        if not isinstance(content, str):
-            raise LLMError("bad_response", "The model sent back something Kami couldn't read. "
-                                           "Try again, or pick another model.")
-        return content
+        return body if isinstance(body, dict) else {}
 
     def _error(self, status: int, error) -> LLMError:
         detail = ""
@@ -111,7 +122,8 @@ class LLMClient:
         else:
             kind, message = "request", f"The model provider refused the request (error {status})."
         if detail:
-            detail = detail.replace(self.cfg.api_key, "[redacted]")  # never echo the key
+            if self.cfg.api_key:
+                detail = detail.replace(self.cfg.api_key, "[redacted]")  # never echo the key
             if len(detail) > PROVIDER_DETAIL_MAX:
                 detail = detail[:PROVIDER_DETAIL_MAX - 1] + "…"
             message += f" Provider says: {detail}"

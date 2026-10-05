@@ -1,3 +1,3 @@
-from kami.app import main
+from kami.cli import main
 
 raise SystemExit(main())

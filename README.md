@@ -63,7 +63,9 @@ Misspelled keys are reported as warnings in the terminal.
 
 ```
 src/kami/
-  app.py              entry point, tray icon, single-instance socket (`kami toggle`)
+  cli.py              command line: start, toggle, doctor, --version (no Qt needed)
+  doctor.py           `kami doctor` health report
+  app.py              tray icon, panel start-up, single-instance socket (`kami toggle`)
   config.py           ~/.config/kami/config.toml (validated) + env var API key
   logs.py             log file with key redaction
   hotkey.py           global hotkey (X11 via pynput)
@@ -94,6 +96,12 @@ The full phase-by-phase plan is in [MILESTONES.md](MILESTONES.md).
 - [ ] Voice commands for hands-free control
 
 ## Troubleshooting
+
+Run `kami doctor` first. It works without a display (e.g. over SSH) and prints what
+works and what doesn't: session type, config, whether a key is set (never the key
+itself), whether the endpoint and model answer, the hotkey, and screen capture. It
+exits with 1 if anything is ✗, and it never sends a chat request, so it costs nothing.
+`kami --version` prints the version.
 
 Kami writes a log to `~/.local/state/kami/kami.log` (rotated at 1 MB). It records what
 happened and how long it took, never your API key, screenshots, questions or answers.
