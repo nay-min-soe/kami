@@ -22,4 +22,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - run: pip install -e ".[dev]"
+      - run: ruff check .
+        if: matrix.python-version == '3.12'
       - run: pytest -q

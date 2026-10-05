@@ -25,5 +25,5 @@ def test_falls_back_to_plain_text():
 
 def test_caps_annotation_count():
     items = ",".join('{"type":"text","x":0,"y":0,"text":"n"}' for _ in range(10))
-    lesson = parse_lesson('{"explanation":"x","annotations":[%s]}' % items)
+    lesson = parse_lesson('{"explanation":"x","annotations":[' + items + "]}")
     assert len(lesson.annotations) == 4

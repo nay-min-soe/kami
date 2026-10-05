@@ -16,7 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 hotkey = ["pynput>=1.7"]   # global hotkey on X11
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
 kami = "kami.app:main"
@@ -27,3 +27,11 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [".claude"]   # Claude Code helper scripts, not Kami
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
