@@ -13,9 +13,12 @@ class MissingAPIKey(RuntimeError):
 
 
 class LLMClient:
-    def __init__(self, cfg: LLMConfig, timeout: float = 90.0) -> None:
+    def __init__(self, cfg: LLMConfig, timeout: float = 90.0,
+                 http: httpx.Client | None = None) -> None:
         self.cfg = cfg
         self.timeout = timeout
+        # Tests pass an httpx.Client with a MockTransport, so nothing touches the network.
+        self.http = http or httpx.Client(timeout=timeout)
 
     def chat(self, messages: list[dict]) -> str:
         if not self.cfg.api_key:
@@ -23,14 +26,13 @@ class LLMClient:
                 "No API key. Set KAMI_API_KEY or OPENROUTER_API_KEY, "
                 "or api_key in ~/.config/kami/config.toml."
             )
-        response = httpx.post(
+        response = self.http.post(
             f"{self.cfg.base_url}/chat/completions",
             headers={
                 "Authorization": f"Bearer {self.cfg.api_key}",
                 "X-Title": "Kami",
             },
             json={"model": self.cfg.model, "messages": messages},
-            timeout=self.timeout,
         )
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"]
