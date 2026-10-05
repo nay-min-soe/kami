@@ -70,6 +70,14 @@ def test_base_url_must_be_http(tmp_path):
         _load(tmp_path, '[llm]\nbase_url = "openrouter.ai"\n')
 
 
+def test_plain_http_only_for_localhost(tmp_path):
+    # The API key travels with every request, so remote plain http is refused.
+    with pytest.raises(ConfigError, match="https"):
+        _load(tmp_path, '[llm]\nbase_url = "http://example.com/v1"\n')
+    cfg = _load(tmp_path, '[llm]\nbase_url = "http://localhost:11434/v1/"\n')
+    assert cfg.llm.base_url == "http://localhost:11434/v1"
+
+
 def test_unknown_key_becomes_warning_with_suggestion(tmp_path):
     cfg = _load(tmp_path, "[app_control]\nallowed_app = []\n")
     assert len(cfg.warnings) == 1

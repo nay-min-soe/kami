@@ -10,10 +10,12 @@ import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "kami"
 CONFIG_PATH = CONFIG_DIR / "config.toml"
 API_KEY_ENV_VARS = ("KAMI_API_KEY", "OPENROUTER_API_KEY")
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 # Every section and key load_config reads. Anything else becomes a warning.
 KNOWN_KEYS = {
@@ -123,9 +125,12 @@ def load_config(path: Path | None = None) -> Config:
     defaults = LLMConfig()
     llm = _table(data, "llm", where)
     base_url = _str(llm, "llm", "base_url", defaults.base_url, where).rstrip("/")
-    if not base_url.startswith(("http://", "https://")):
-        raise ConfigError(f'{where}: [llm] base_url must start with http:// or https://, '
-                          f'e.g. base_url = "{defaults.base_url}"')
+    url = urlsplit(base_url)
+    local = url.scheme == "http" and url.hostname in LOCAL_HOSTS
+    if not (url.scheme == "https" and url.hostname) and not local:
+        # Plain http would send the API key unencrypted, so only allow it for local models.
+        raise ConfigError(f'{where}: [llm] base_url must start with https:// '
+                          f'(http:// only for localhost), e.g. base_url = "{defaults.base_url}"')
 
     return Config(
         llm=LLMConfig(
