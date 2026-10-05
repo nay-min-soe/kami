@@ -1,3 +1,3 @@
-from kami.llm.client import LLMClient, MissingAPIKey
+from kami.llm.client import LLMClient, LLMError, MissingAPIKey
 
-__all__ = ["LLMClient", "MissingAPIKey"]
+__all__ = ["LLMClient", "LLMError", "MissingAPIKey"]
