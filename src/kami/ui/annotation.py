@@ -7,6 +7,7 @@ from PySide6.QtCore import QPointF, QRect, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget
 
+from kami.geometry import Rect, layer_rect, to_point
 from kami.modes.learning import Annotation
 
 INK = QColor("#FF6B9A")
@@ -31,9 +32,11 @@ class AnnotationLayer(QWidget):
         self._timer.setInterval(hide_after_ms)
         self._timer.timeout.connect(self.clear)
 
-    def show_annotations(self, region: QRect, items: list[Annotation]) -> None:
-        self.setGeometry(region.adjusted(-PAD, -PAD, PAD, PAD))
-        self._region = QRectF(PAD, PAD, region.width(), region.height())
+    def show_annotations(self, region: QRect, items: list[Annotation], screen: QRect) -> None:
+        """`region` and `screen` are global logical coordinates (Qt's, so HiDPI-scaled)."""
+        layer, inner = layer_rect(_rect(region), _rect(screen), PAD)
+        self.setGeometry(QRect(int(layer.x), int(layer.y), int(layer.w), int(layer.h)))
+        self._region = QRectF(inner.x, inner.y, inner.w, inner.h)
         self._items = items
         self.show()
         self.update()
@@ -45,7 +48,7 @@ class AnnotationLayer(QWidget):
 
     def _pt(self, x: float, y: float) -> QPointF:
         r = self._region
-        return QPointF(r.left() + x * r.width(), r.top() + y * r.height())
+        return QPointF(*to_point(Rect(r.x(), r.y(), r.width(), r.height()), x, y))
 
     def _note(self, p: QPainter, at: QPointF, text: str) -> None:
         if not text:
@@ -87,3 +90,7 @@ class AnnotationLayer(QWidget):
                 self._note(p, start + QPointF(-10, 8), a.label)
             elif a.type == "text":
                 self._note(p, self._pt(a.x, a.y), a.label)
+
+
+def _rect(r: QRect) -> Rect:
+    return Rect(r.x(), r.y(), r.width(), r.height())

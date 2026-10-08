@@ -6,7 +6,7 @@ import os
 import threading
 
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QRect, Qt, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices, QGuiApplication
+from PySide6.QtGui import QCursor, QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -138,7 +138,9 @@ class KamiOverlay(QWidget):
             self.summon()
 
     def summon(self) -> None:
-        screen = QGuiApplication.primaryScreen().availableGeometry()
+        # Open on the monitor you're working on, not always the primary one.
+        here = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
+        screen = here.availableGeometry()
         self.move(screen.right() - self.width() - 24, screen.top() + 48)
         self.show()
         self.raise_()
@@ -321,7 +323,7 @@ class KamiOverlay(QWidget):
             self._end()
             self._render_chat()
             if lesson.annotations:
-                self.doodles.show_annotations(region, lesson.annotations)
+                self.doodles.show_annotations(region, lesson.annotations, screen.geometry())
 
         if os.environ.get("KAMI_DEBUG_DOODLES") == "1":
             log.info("calibration mode: drawing the test pattern, no AI call")
