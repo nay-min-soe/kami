@@ -53,3 +53,26 @@ def scaled_size(w: int, h: int, max_edge: int) -> tuple[int, int]:
         return w, h
     scale = max_edge / long_edge
     return max(1, round(w * scale)), max(1, round(h * scale))
+
+
+def overlaps(a: Rect, b: Rect) -> bool:
+    """True if the rects share area (touching edges don't count)."""
+    return a.x < b.right and b.x < a.right and a.y < b.bottom and b.y < a.bottom
+
+
+def place_label(anchor: tuple[float, float], size: tuple[float, float],
+                bounds: Rect, taken: list[Rect]) -> Rect:
+    """Where a label box goes: the first of right-above, right-below, left-above,
+    left-below the anchor that is inside `bounds` and clear of `taken` labels.
+    Crowded? Try those spots moved inside the bounds, then just below a taken label.
+    Always returns a box inside the bounds (it may overlap only as a last resort)."""
+    (ax, ay), (w, h) = anchor, size
+    spots = [Rect(ax, ay - h, w, h), Rect(ax, ay, w, h),
+             Rect(ax - w, ay - h, w, h), Rect(ax - w, ay, w, h)]
+    moved = [fit_inside(s, bounds) for s in spots]
+    below = [fit_inside(Rect(moved[0].x, t.bottom + 2, w, h), bounds)
+             for t in sorted(taken, key=lambda r: r.bottom)]
+    for spot in [s for s, m in zip(spots, moved, strict=True) if s == m] + moved + below:
+        if not any(overlaps(spot, t) for t in taken):
+            return spot
+    return moved[0]

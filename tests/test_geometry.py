@@ -1,6 +1,14 @@
 import pytest
 
-from kami.geometry import Rect, fit_inside, layer_rect, scaled_size, to_point
+from kami.geometry import (
+    Rect,
+    fit_inside,
+    layer_rect,
+    overlaps,
+    place_label,
+    scaled_size,
+    to_point,
+)
 
 SCREEN = Rect(0, 0, 1920, 1080)
 
@@ -63,3 +71,51 @@ def test_scaled_size():
     assert scaled_size(800, 600, 1568) == (800, 600)
     assert scaled_size(1568, 10, 1568) == (1568, 10)
     assert scaled_size(100_000, 1, 1568) == (1568, 1)
+
+
+LABEL = (100, 20)
+
+
+def test_place_label_prefers_right_above():
+    assert place_label((500, 500), LABEL, SCREEN, []) == Rect(500, 480, 100, 20)
+
+
+def test_place_label_flips_at_right_edge():
+    box = place_label((1900, 500), LABEL, SCREEN, [])
+    assert box == Rect(1800, 480, 100, 20)
+    assert box.right <= SCREEN.right
+
+
+def test_place_label_flips_at_top_edge():
+    assert place_label((500, 5), LABEL, SCREEN, []) == Rect(500, 5, 100, 20)
+
+
+def test_place_label_flips_at_top_right_corner():
+    assert place_label((1900, 5), LABEL, SCREEN, []) == Rect(1800, 5, 100, 20)
+
+
+def test_place_label_avoids_taken():
+    first = place_label((500, 500), LABEL, SCREEN, [])
+    second = place_label((510, 505), LABEL, SCREEN, [first])
+    assert not overlaps(first, second)
+    assert second == Rect(510, 505, 100, 20)   # right-below
+
+
+def test_place_label_always_inside_bounds():
+    small = Rect(0, 0, 150, 30)
+    taken = [Rect(0, 0, 150, 30)]          # nothing is free
+    box = place_label((140, 25), LABEL, small, taken)
+    assert fit_inside(box, small) == box
+
+
+def test_overlaps_ignores_touching_edges():
+    assert not overlaps(Rect(0, 0, 10, 10), Rect(10, 0, 10, 10))
+    assert overlaps(Rect(0, 0, 10, 10), Rect(9, 9, 10, 10))
+
+
+def test_place_label_crowded_corner_stacks_without_overlap():
+    taken: list[Rect] = []
+    for _ in range(3):
+        taken.append(place_label((1900, 5), LABEL, SCREEN, taken))
+    assert all(fit_inside(b, SCREEN) == b for b in taken)
+    assert not any(overlaps(a, b) for i, a in enumerate(taken) for b in taken[i + 1:])
