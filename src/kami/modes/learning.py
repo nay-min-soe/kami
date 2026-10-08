@@ -166,5 +166,22 @@ def follow_up_conversation(png: bytes, lesson: Lesson) -> Conversation:
     return chat
 
 
+def calibration_lesson() -> Lesson:
+    """Fixed doodles for checking alignment by eye (KAMI_DEBUG_DOODLES=1). No AI call."""
+    corners = [Annotation("circle", x, y, r=0.02, label=f"{x:g},{y:g}")
+               for x, y in ((0, 0), (1, 0), (0, 1), (1, 1))]
+    centre = [Annotation("arrow", 0.4, 0.5, x2=0.5, y2=0.5),
+              Annotation("circle", 0.5, 0.5, r=0.02, label="centre")]
+    edges = [Annotation("text", x, y, label=name)
+             for name, x, y in (("top", 0.5, 0), ("bottom", 0.5, 1),
+                                ("left", 0, 0.5), ("right", 1, 0.5))]
+    return Lesson(
+        explanation=("**Calibration mode** (`KAMI_DEBUG_DOODLES=1`, no AI call). Each small "
+                     "circle should sit on a corner of your box, and the middle one on its "
+                     "centre. Zoom a screenshot to measure the offset in pixels."),
+        annotations=corners + centre + edges,
+    )
+
+
 def explain_region(client, png: bytes) -> Lesson:
     return parse_lesson(client.ask_about_image(png, USER_PROMPT, system=SYSTEM_PROMPT))

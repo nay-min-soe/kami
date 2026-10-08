@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QRect, Qt, QTimer, QUrl
@@ -322,6 +323,10 @@ class KamiOverlay(QWidget):
             if lesson.annotations:
                 self.doodles.show_annotations(region, lesson.annotations)
 
+        if os.environ.get("KAMI_DEBUG_DOODLES") == "1":
+            log.info("calibration mode: drawing the test pattern, no AI call")
+            done(learning.calibration_lesson())
+            return
         run_in_background(learning.explain_region, self.client, png,
                           on_done=done, on_error=self._failed_for(generation))
 

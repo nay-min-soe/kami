@@ -154,3 +154,12 @@ def test_follow_up_uses_text_prompt():
     assert system == {"role": "system", "content": FOLLOW_UP_PROMPT}
     assert system["content"] != SYSTEM_PROMPT
     assert "JSON" not in FOLLOW_UP_PROMPT.replace("no JSON", "")
+
+
+def test_calibration_lesson_marks_corners_and_centre():
+    from kami.modes.learning import calibration_lesson
+
+    lesson = calibration_lesson()
+    circles = {(a.x, a.y) for a in lesson.annotations if a.type == "circle"}
+    assert {(0, 0), (1, 0), (0, 1), (1, 1), (0.5, 0.5)} <= circles
+    assert "KAMI_DEBUG_DOODLES" in lesson.explanation
