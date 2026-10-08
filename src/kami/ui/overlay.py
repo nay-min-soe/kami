@@ -92,6 +92,15 @@ class KamiOverlay(QWidget):
         self.output.anchorClicked.connect(self._open_link)
         layout.addWidget(self.output, 1)
 
+        self._answer = ""  # Markdown source of the last real answer, never status/errors
+        self.copy_button = QPushButton("Copy")
+        self.copy_button.setEnabled(False)
+        self.copy_button.clicked.connect(self._copy)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(self.copy_button)
+        layout.addLayout(row)
+
         self.setStyleSheet(STYLE)
         self.resize(520, 420)
 
@@ -118,8 +127,26 @@ class KamiOverlay(QWidget):
     def _say(self, text: str) -> None:
         self.output.setMarkdown(text)
 
+    def _busy(self, status: str) -> None:
+        self._say(status)
+        self.copy_button.setEnabled(False)
+
+    def _show_answer(self, text: str) -> None:
+        self._answer = text
+        self._say(text)
+        self._refresh_copy()
+
     def _error(self, message: str) -> None:
         self._say(f"**Oops:** {message}")
+        self._refresh_copy()
+
+    def _refresh_copy(self) -> None:
+        self.copy_button.setEnabled(bool(self._answer))
+
+    def _copy(self) -> None:
+        QGuiApplication.clipboard().setText(self._answer)
+        self.copy_button.setText("Copied ✓")
+        QTimer.singleShot(1500, lambda: self.copy_button.setText("Copy"))
 
     def _open_link(self, url: QUrl) -> None:
         if learning.is_safe_link(url.toString()):
@@ -131,8 +158,9 @@ class KamiOverlay(QWidget):
         prompt = self.input.text().strip()
         if not prompt:
             return
-        self._say("_Thinking..._")
-        run_in_background(self.client.ask, prompt, on_done=self._say, on_error=self._error)
+        self._busy("_Thinking..._")
+        run_in_background(self.client.ask, prompt, on_done=self._show_answer,
+                          on_error=self._error)
 
     def explain_screen(self) -> None:
         self.hide()
@@ -157,10 +185,14 @@ class KamiOverlay(QWidget):
             log.warning("screen capture returned an empty image")
             self._error(CAPTURE_FAILED)
             return
-        self._say("_Looking at your screen..._")
+        self._busy("_Looking at your screen..._")
 
         def done(lesson: learning.Lesson) -> None:
-            self._say(lesson.explanation or "_No explanation returned._")
+            if lesson.explanation:
+                self._show_answer(lesson.explanation)
+            else:
+                self._say("_No explanation returned._")
+                self._refresh_copy()
             if lesson.annotations:
                 self.doodles.show_annotations(region, lesson.annotations)
 
@@ -173,6 +205,6 @@ class KamiOverlay(QWidget):
             self._say("Live capture is coming soon. For now, paste a transcript into the "
                       "box and press **Meeting notes**.")
             return
-        self._say("_Writing notes..._")
+        self._busy("_Writing notes..._")
         run_in_background(meetings.summarize_transcript, self.client, text,
-                          on_done=self._say, on_error=self._error)
+                          on_done=self._show_answer, on_error=self._error)
