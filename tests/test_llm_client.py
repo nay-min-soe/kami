@@ -131,3 +131,120 @@ def test_error_never_contains_api_key(handler):
         client_with(handler).ask("hi")
     assert KEY not in str(err.value)
     assert "0123456789" not in str(err.value)
+
+
+# ---------- streaming ----------
+
+def sse(*events: str) -> bytes:
+    return "".join(f"{e}\n\n" for e in events).encode()
+
+
+def delta(text: str) -> str:
+    return "data: " + json.dumps({"choices": [{"delta": {"content": text}}]})
+
+
+def stream_reply(body: bytes, status: int = 200, seen: dict | None = None):
+    def handler(request):
+        if seen is not None:
+            seen["body"] = json.loads(request.content)
+        return httpx.Response(status, content=body,
+                              headers={"content-type": "text/event-stream"})
+    return handler
+
+
+def collect(client: LLMClient, cancel=None, on_piece=None):
+    pieces: list[str] = []
+
+    def on_delta(piece):
+        pieces.append(piece)
+        if on_piece:
+            on_piece(piece)
+
+    return client.chat_stream([{"role": "user", "content": "hi"}], on_delta, cancel), pieces
+
+
+def test_stream_yields_deltas_in_order():
+    body = sse(delta("Hel"), delta("lo"), "data: [DONE]")
+    text, pieces = collect(client_with(stream_reply(body)))
+    assert pieces == ["Hel", "lo"]
+    assert text == "Hello"
+
+
+def test_stream_sends_stream_true():
+    seen: dict = {}
+    collect(client_with(stream_reply(sse(delta("x"), "data: [DONE]"), seen=seen)))
+    assert seen["body"]["stream"] is True
+    assert seen["body"]["model"] == "x/y"
+
+
+def test_stream_skips_comments_and_blank_lines():
+    body = sse(": OPENROUTER PROCESSING", delta("a"), ": OPENROUTER PROCESSING", "",
+               delta("b"), "data: [DONE]")
+    assert collect(client_with(stream_reply(body)))[0] == "ab"
+
+
+def test_stream_skips_chunks_without_content():
+    role_only = "data: " + json.dumps({"choices": [{"delta": {"role": "assistant"}}]})
+    usage = "data: " + json.dumps({"choices": [], "usage": {"total_tokens": 5}})
+    body = sse(role_only, delta("ok"), usage, "data: not json", "data: [DONE]")
+    text, pieces = collect(client_with(stream_reply(body)))
+    assert (text, pieces) == ("ok", ["ok"])
+
+
+@pytest.mark.parametrize("status, kind", [(401, "auth"), (402, "credits"), (429, "rate_limit")])
+def test_stream_http_error_maps_to_kind(status, kind):
+    body = json.dumps({"error": {"message": "nope", "code": status}}).encode()
+    with pytest.raises(LLMError) as err:
+        collect(client_with(stream_reply(body, status=status)))
+    assert err.value.kind == kind
+
+
+def test_stream_mid_error_maps_to_server():
+    mid = "data: " + json.dumps({"error": {"code": "server_error", "message": "upstream died"},
+                                 "choices": [{"finish_reason": "error"}]})
+    pieces: list[str] = []
+    client = client_with(stream_reply(sse(delta("par"), delta("tial"), mid)))
+    with pytest.raises(LLMError) as err:
+        client.chat_stream([], pieces.append)
+    assert err.value.kind == "server"
+    assert pieces == ["par", "tial"]
+
+
+def test_stream_cancel_stops_reading():
+    import threading
+    cancel = threading.Event()
+    pieces: list[str] = []
+    client = client_with(stream_reply(sse(delta("one"), delta("two"), delta("three"))))
+    with pytest.raises(LLMError) as err:
+        client.chat_stream([], lambda p: (pieces.append(p), cancel.set()), cancel)
+    assert err.value.kind == "cancelled"
+    assert pieces == ["one"]
+
+
+def test_stream_empty_is_bad_response():
+    with pytest.raises(LLMError) as err:
+        collect(client_with(stream_reply(sse("data: [DONE]"))))
+    assert err.value.kind == "bad_response"
+
+
+def test_stream_connection_drop_maps_to_network():
+    def handler(request):
+        raise httpx.ReadError("reset", request=request)
+    with pytest.raises(LLMError) as err:
+        collect(client_with(handler))
+    assert err.value.kind == "network"
+
+
+def test_stream_missing_key_raises_before_network():
+    def handler(_request):
+        raise AssertionError("network must not be touched")
+    with pytest.raises(MissingAPIKey):
+        collect(client_with(handler, key=""))
+
+
+@pytest.mark.parametrize("status", [400, 401, 500])
+def test_stream_error_never_contains_api_key(status):
+    body = json.dumps({"error": {"message": f"bad key {KEY} here"}}).encode()
+    with pytest.raises(LLMError) as err:
+        collect(client_with(stream_reply(body, status=status)))
+    assert KEY not in str(err.value)

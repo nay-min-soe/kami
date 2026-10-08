@@ -16,6 +16,10 @@ class FakeLLM:
         self.calls.append({"png": png, "prompt": prompt, "system": system})
         return self.reply
 
+    def chat(self, messages: list[dict]) -> str:
+        self.calls.append({"messages": messages})
+        return self.reply
+
 
 @pytest.fixture
 def fake_llm() -> FakeLLM:

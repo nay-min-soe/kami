@@ -13,8 +13,8 @@ by doodling on it like a teacher with a marker, and (carefully) controls your ap
 
 | Mode                     | What you get                                                                                                                                           | Status                                                             |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| **Ask**            | Type a question in the pop-up panel                                                                                                                    | ✅ Works                                                           |
-| **Explain screen** | Drag a box around anything (a YouTube lesson, code, a chart). Kami explains it and draws circles, arrows and short notes **on the screen itself** | ✅ Works (X11; see Wayland notes)                                  |
+| **Ask**            | Type a question in the pop-up panel. The answer streams in as it's written (**Stop** ends it early). It remembers the chat (in memory only) until you click **New chat**; **Copy** puts the last answer (as Markdown) on the clipboard | ✅ Works                                                           |
+| **Explain screen** | Drag a box around anything (a YouTube lesson, code, a chart). Kami explains it and draws circles, arrows and short notes **on the screen itself**. Doodles fade out after 25 s (**📌 Keep** holds them). Then type follow-up questions about the same capture (text answers, no new screenshot) | ✅ Works (X11; see Wayland notes)                                  |
 | **Meeting notes**  | Transcripts, notes and quick research                                                                                                                  | 🟡 Notes from a pasted transcript work; live audio capture is TODO |
 | **App control**    | Hands-free actions inside allowed apps                                                                                                                 | 🟡 Safety gate + "launch app" done; more actions TODO              |
 
@@ -59,6 +59,16 @@ Misspelled keys are reported as warnings in the terminal.
 
 `kami toggle` also works on X11 and shows or hides the running instance.
 
+### Several monitors and HiDPI (X11)
+
+- The panel opens on the monitor under your mouse, and Explain screen works on the
+  monitor you start the drag on (one box can't span two monitors).
+- Big captures are shrunk to 1568 px on the long edge before sending, to save tokens.
+- GNOME and KDE on Xorg use one scale for every monitor. To give Qt a different scale
+  per screen, start Kami with, for example,
+  `QT_SCREEN_SCALE_FACTORS="DP-1=1;HDMI-1=2" kami` (output names come from `xrandr`).
+  Proper per-monitor scaling is planned for later.
+
 ## Project layout
 
 ```
@@ -67,6 +77,8 @@ src/kami/
   doctor.py           `kami doctor` health report
   app.py              tray icon, panel start-up, single-instance socket (`kami toggle`)
   config.py           ~/.config/kami/config.toml (validated) + env var API key
+  conversation.py     short in-memory chat history for Ask
+  geometry.py         screen maths for doodles and captures (no Qt)
   logs.py             log file with key redaction
   hotkey.py           global hotkey (X11 via pynput)
   safety.py           allowlist + confirm-before-sensitive-actions gate
@@ -106,6 +118,10 @@ exits with 1 if anything is ✗, and it never sends a chat request, so it costs 
 Kami writes a log to `~/.local/state/kami/kami.log` (rotated at 1 MB). It records what
 happened and how long it took, never your API key, screenshots, questions or answers.
 For more detail, start Kami with `KAMI_LOG_LEVEL=DEBUG kami`.
+
+Doodles in the wrong place? Start Kami with `KAMI_DEBUG_DOODLES=1 kami` and use Explain
+screen: it skips the AI (no cost) and draws a test pattern, small circles on each corner
+of your box and one in the middle, so you can see how far off they are.
 
 ## Development
 
