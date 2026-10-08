@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from kami.config import Config
 from kami.conversation import Conversation
+from kami.geometry import scaled_size
 from kami.llm import LLMClient
 from kami.modes import learning, meetings
 from kami.ui.annotation import AnnotationLayer
@@ -298,6 +299,12 @@ class KamiOverlay(QWidget):
         screen = QGuiApplication.screenAt(region.center()) or QGuiApplication.primaryScreen()
         local = region.translated(-screen.geometry().topLeft())
         pixmap = screen.grabWindow(0, local.x(), local.y(), local.width(), local.height())
+        if not pixmap.isNull():
+            # At 200% a 1000x800 box is 2000x1600 real pixels. Doodle coordinates are
+            # fractions of the image, so shrinking it doesn't move them.
+            w, h = scaled_size(pixmap.width(), pixmap.height(), learning.MAX_IMAGE_EDGE)
+            if (w, h) != (pixmap.width(), pixmap.height()):
+                pixmap = pixmap.scaled(w, h, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
         data = QByteArray()
         buffer = QBuffer(data)
         buffer.open(QIODevice.WriteOnly)
