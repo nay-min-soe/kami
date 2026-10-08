@@ -13,6 +13,7 @@ import json
 import math
 import re
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 SYSTEM_PROMPT = """You are Kami, a patient teacher explaining what is on the user's screen.
 Reply with ONLY a JSON object, no code fences:
@@ -139,6 +140,17 @@ def parse_lesson(raw: str) -> Lesson:
             if len(annotations) == MAX_ANNOTATIONS:
                 break
     return Lesson(explanation=explanation.strip(), annotations=annotations)
+
+
+def is_safe_link(url: str) -> bool:
+    """True only for http(s) links with a host; the panel opens nothing else."""
+    if not isinstance(url, str):
+        return False
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return False
+    return parts.scheme in ("http", "https") and bool(parts.netloc)
 
 
 def explain_region(client, png: bytes) -> Lesson:

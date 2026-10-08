@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from kami.modes.learning import parse_lesson
+from kami.modes.learning import is_safe_link, parse_lesson
 
 
 def reply(annotations, explanation="x") -> str:
@@ -127,3 +127,11 @@ def test_injection_text_stays_bounded():
         assert 0.0 <= a.x <= 1.0 and 0.0 <= a.y <= 1.0
         assert len(a.label) <= 60
 
+
+@pytest.mark.parametrize("url, safe", [
+    ("https://x", True), ("http://x", True), ("HTTPS://example.com/a?b=1", True),
+    ("file:///etc/passwd", False), ("javascript:alert(1)", False), ("apt:foo", False),
+    ("https:", False), ("", False), (None, False),
+])
+def test_is_safe_link(url, safe):
+    assert is_safe_link(url) is safe

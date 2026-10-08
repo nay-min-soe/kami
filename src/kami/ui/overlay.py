@@ -1,8 +1,10 @@
 """The panel that pops up on the hotkey."""
 from __future__ import annotations
 
-from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QRect, Qt, QTimer
-from PySide6.QtGui import QGuiApplication
+import logging
+
+from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QRect, Qt, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -19,6 +21,8 @@ from kami.modes import learning, meetings
 from kami.ui.annotation import AnnotationLayer
 from kami.ui.region_select import RegionSelector
 from kami.ui.worker import run_in_background
+
+log = logging.getLogger(__name__)
 
 STYLE = """
 #panel { background: #1E1B2E; border: 3px solid #FF6B9A; border-radius: 18px; }
@@ -76,7 +80,11 @@ class KamiOverlay(QWidget):
         layout.addWidget(self.input)
 
         self.output = QTextBrowser()
-        self.output.setOpenExternalLinks(True)
+        # Answers can repeat links from a screenshot, so we vet every click ourselves.
+        # openLinks=False also stops the browser loading file: links into itself.
+        self.output.setOpenLinks(False)
+        self.output.setOpenExternalLinks(False)
+        self.output.anchorClicked.connect(self._open_link)
         layout.addWidget(self.output, 1)
 
         self.setStyleSheet(STYLE)
@@ -107,6 +115,12 @@ class KamiOverlay(QWidget):
 
     def _error(self, message: str) -> None:
         self._say(f"**Oops:** {message}")
+
+    def _open_link(self, url: QUrl) -> None:
+        if learning.is_safe_link(url.toString()):
+            QDesktopServices.openUrl(url)
+        else:
+            log.info("blocked link with scheme %r", url.scheme()[:20])
 
     def ask(self) -> None:
         prompt = self.input.text().strip()
