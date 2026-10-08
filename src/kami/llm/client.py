@@ -84,7 +84,8 @@ class LLMClient:
             text = self._chat_stream(messages, delta, cancel)
         except LLMError as exc:
             # Timings and the kind only: never the prompt, the reply or the key.
-            log.warning("stream ended kind=%s model=%s first_token=%s took=%.1fs", exc.kind,
+            level = logging.INFO if exc.kind == "cancelled" else logging.WARNING
+            log.log(level, "stream ended kind=%s model=%s first_token=%s took=%.1fs", exc.kind,
                         self.cfg.model, f"{first[0]:.1f}s" if first else "none",
                         time.monotonic() - start)
             raise
