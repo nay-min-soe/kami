@@ -46,6 +46,7 @@ QPushButton { background: #FFC93C; color: #1E1B2E; border: none; border-radius: 
               padding: 8px 12px; font-weight: 700; }
 QPushButton:hover { background: #FF6B9A; }
 QPushButton:disabled { background: #4A4560; color: #8A85A0; }
+QPushButton:checked { background: #FF6B9A; }
 """
 
 
@@ -93,6 +94,11 @@ class KamiOverlay(QWidget):
             button = QPushButton(text)
             button.clicked.connect(slot)
             buttons.addWidget(button)
+        self.keep_button = QPushButton("📌 Keep")
+        self.keep_button.setCheckable(True)
+        self.keep_button.setToolTip("Keep doodles on screen until you click Clear doodles")
+        self.keep_button.toggled.connect(self.doodles.set_keep)
+        buttons.addWidget(self.keep_button)
         layout.addLayout(buttons)
 
         self.context = QLabel("📷 Asking about your screen capture · New chat to stop")

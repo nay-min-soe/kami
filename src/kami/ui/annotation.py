@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QPointF, QRect, QRectF, Qt, QTimer
+from PySide6.QtCore import QPointF, QPropertyAnimation, QRect, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget
 
@@ -16,6 +16,7 @@ NOTE_FG = QColor("#FFC93C")
 PAD = 60  # room for labels just outside the region
 LABEL_MAX_PX = 220
 EDGE = 4  # labels keep this far from the layer's edge
+FADE_MS = 600
 
 
 class AnnotationLayer(QWidget):
@@ -29,10 +30,17 @@ class AnnotationLayer(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self._items: list[Annotation] = []
         self._region = QRectF()
+        self._keep = False
+        # Without a compositor X11 ignores window opacity, so the fade is just a hide.
+        self._fade = QPropertyAnimation(self, b"windowOpacity", self)
+        self._fade.setDuration(FADE_MS)
+        self._fade.setStartValue(1.0)
+        self._fade.setEndValue(0.0)
+        self._fade.finished.connect(self.clear)
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
-        self._timer.setInterval(hide_after_ms)
-        self._timer.timeout.connect(self.clear)
+        self._timer.setInterval(max(0, hide_after_ms - FADE_MS))
+        self._timer.timeout.connect(self._fade.start)
 
     def show_annotations(self, region: QRect, items: list[Annotation], screen: QRect) -> None:
         """`region` and `screen` are global logical coordinates (Qt's, so HiDPI-scaled)."""
@@ -40,13 +48,28 @@ class AnnotationLayer(QWidget):
         self.setGeometry(QRect(int(layer.x), int(layer.y), int(layer.w), int(layer.h)))
         self._region = QRectF(inner.x, inner.y, inner.w, inner.h)
         self._items = items
+        self._fade.stop()
+        self.setWindowOpacity(1.0)
         self.show()
         self.update()
-        self._timer.start()
+        if not self._keep:
+            self._timer.start()
+
+    def set_keep(self, keep: bool) -> None:
+        """Keep doodles on screen until Clear; turning it off restarts the countdown."""
+        self._keep = keep
+        self._timer.stop()
+        self._fade.stop()
+        self.setWindowOpacity(1.0)
+        if not keep and self.isVisible():
+            self._timer.start()
 
     def clear(self) -> None:
+        self._timer.stop()
+        self._fade.stop()
         self._items = []
         self.hide()
+        self.setWindowOpacity(1.0)
 
     def _pt(self, x: float, y: float) -> QPointF:
         r = self._region
