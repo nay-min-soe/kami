@@ -13,7 +13,7 @@ by doodling on it like a teacher with a marker, and (carefully) controls your ap
 
 | Mode                     | What you get                                                                                                                                           | Status                                                             |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| **Ask**            | Type a question in the pop-up panel; **Copy** puts the answer (as Markdown) on the clipboard                                                           | ✅ Works                                                           |
+| **Ask**            | Type a question in the pop-up panel. It remembers the chat (in memory only) until you click **New chat**; **Copy** puts the last answer (as Markdown) on the clipboard | ✅ Works                                                           |
 | **Explain screen** | Drag a box around anything (a YouTube lesson, code, a chart). Kami explains it and draws circles, arrows and short notes **on the screen itself** | ✅ Works (X11; see Wayland notes)                                  |
 | **Meeting notes**  | Transcripts, notes and quick research                                                                                                                  | 🟡 Notes from a pasted transcript work; live audio capture is TODO |
 | **App control**    | Hands-free actions inside allowed apps                                                                                                                 | 🟡 Safety gate + "launch app" done; more actions TODO              |
@@ -67,6 +67,7 @@ src/kami/
   doctor.py           `kami doctor` health report
   app.py              tray icon, panel start-up, single-instance socket (`kami toggle`)
   config.py           ~/.config/kami/config.toml (validated) + env var API key
+  conversation.py     short in-memory chat history for Ask
   logs.py             log file with key redaction
   hotkey.py           global hotkey (X11 via pynput)
   safety.py           allowlist + confirm-before-sensitive-actions gate

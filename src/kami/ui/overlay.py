@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from kami.config import Config
+from kami.conversation import Conversation
 from kami.llm import LLMClient
 from kami.modes import learning, meetings
 from kami.ui.annotation import AnnotationLayer
@@ -34,11 +35,13 @@ STYLE = """
 QLabel#title { color: #FFC93C; font-size: 22px; font-weight: 800; }
 QLineEdit { background: #2A2640; color: #FFF4DC; border: 2px solid #4A4560;
             border-radius: 10px; padding: 8px; font-size: 15px; }
+QLineEdit:disabled { color: #8A85A0; }
 QTextBrowser { background: #2A2640; color: #FFF4DC; border: none;
                border-radius: 10px; padding: 8px; font-size: 14px; }
 QPushButton { background: #FFC93C; color: #1E1B2E; border: none; border-radius: 10px;
               padding: 8px 12px; font-weight: 700; }
 QPushButton:hover { background: #FF6B9A; }
+QPushButton:disabled { background: #4A4560; color: #8A85A0; }
 """
 
 
@@ -52,6 +55,9 @@ class KamiOverlay(QWidget):
         self.selector.selected.connect(self._on_region)
         self.selector.cancelled.connect(self.summon)
         self.doodles = AnnotationLayer()
+        self.chat = Conversation()
+        self._answer = ""      # Markdown source of the last real answer, never status/errors
+        self._generation = 0   # bumped per request and on New chat; stale replies are dropped
         self._build()
 
     # ---------- layout ----------
@@ -92,17 +98,19 @@ class KamiOverlay(QWidget):
         self.output.anchorClicked.connect(self._open_link)
         layout.addWidget(self.output, 1)
 
-        self._answer = ""  # Markdown source of the last real answer, never status/errors
+        self.new_chat_button = QPushButton("New chat")
+        self.new_chat_button.clicked.connect(self.new_chat)
         self.copy_button = QPushButton("Copy")
         self.copy_button.setEnabled(False)
         self.copy_button.clicked.connect(self._copy)
         row = QHBoxLayout()
+        row.addWidget(self.new_chat_button)
         row.addStretch(1)
         row.addWidget(self.copy_button)
         layout.addLayout(row)
 
         self.setStyleSheet(STYLE)
-        self.resize(520, 420)
+        self.resize(520, 460)
 
     # ---------- show / hide ----------
     def toggle(self) -> None:
@@ -123,30 +131,21 @@ class KamiOverlay(QWidget):
         if e.key() == Qt.Key_Escape:
             self.hide()
 
-    # ---------- actions ----------
+    # ---------- output ----------
     def _say(self, text: str) -> None:
         self.output.setMarkdown(text)
+        bar = self.output.verticalScrollBar()
+        bar.setValue(bar.maximum())
 
-    def _busy(self, status: str) -> None:
-        self._say(status)
-        self.copy_button.setEnabled(False)
-
-    def _show_answer(self, text: str) -> None:
-        self._answer = text
-        self._say(text)
-        self._refresh_copy()
-
-    def _error(self, message: str) -> None:
-        self._say(f"**Oops:** {message}")
-        self._refresh_copy()
-
-    def _refresh_copy(self) -> None:
-        self.copy_button.setEnabled(bool(self._answer))
-
-    def _copy(self) -> None:
-        QGuiApplication.clipboard().setText(self._answer)
-        self.copy_button.setText("Copied ✓")
-        QTimer.singleShot(1500, lambda: self.copy_button.setText("Copy"))
+    def _render_chat(self, pending: str | None = None, status: str = "") -> None:
+        parts = []
+        for turn in self.chat.turns:
+            parts.append(("**You:**" if turn.role == "user" else "**Kami:**") + "\n\n" + turn.text)
+        if pending is not None:
+            parts.append("**You:**\n\n" + pending)
+        if status:
+            parts.append(status)
+        self._say("\n\n".join(parts) or "_New chat. Ask anything._")
 
     def _open_link(self, url: QUrl) -> None:
         if learning.is_safe_link(url.toString()):
@@ -154,13 +153,61 @@ class KamiOverlay(QWidget):
         else:
             log.info("blocked link with scheme %r", url.scheme()[:20])
 
+    def _copy(self) -> None:
+        QGuiApplication.clipboard().setText(self._answer)
+        self.copy_button.setText("Copied ✓")
+        QTimer.singleShot(1500, lambda: self.copy_button.setText("Copy"))
+
+    # ---------- request lifecycle ----------
+    def _begin(self) -> int:
+        """Start a request: one at a time, so the input and Copy are off until it ends."""
+        self._generation += 1
+        self.input.setEnabled(False)
+        self.copy_button.setEnabled(False)
+        return self._generation
+
+    def _current(self, generation: int) -> bool:
+        return generation == self._generation
+
+    def _end(self) -> None:
+        self.input.setEnabled(True)
+        self.input.setFocus()
+        self.copy_button.setEnabled(bool(self._answer))
+
+    def new_chat(self) -> None:
+        self._generation += 1   # a reply still on its way now lands nowhere
+        self.chat.clear()
+        self._answer = ""
+        self._end()
+        self._render_chat()
+
+    # ---------- actions ----------
     def ask(self) -> None:
-        prompt = self.input.text().strip()
-        if not prompt:
+        question = self.input.text().strip()
+        if not question or not self.input.isEnabled():
             return
-        self._busy("_Thinking..._")
-        run_in_background(self.client.ask, prompt, on_done=self._show_answer,
-                          on_error=self._error)
+        self.input.clear()
+        generation = self._begin()
+        messages = self.chat.messages_with(question)
+        log.info("ask turns=%d chars=%d", len(self.chat.turns), self.chat.chars + len(question))
+        self._render_chat(question, "_Thinking..._")
+
+        def done(answer: str) -> None:
+            if not self._current(generation):
+                return
+            self.chat.record(question, answer)
+            self._answer = answer
+            self._end()
+            self._render_chat()
+
+        def failed(message: str) -> None:
+            if not self._current(generation):
+                return
+            self._end()
+            self._render_chat(question, f"**Oops:** {message}")
+            self.input.setText(question)   # easy to retry with Enter
+
+        run_in_background(self.client.chat, messages, on_done=done, on_error=failed)
 
     def explain_screen(self) -> None:
         self.hide()
@@ -183,21 +230,23 @@ class KamiOverlay(QWidget):
         if not saved or data.isEmpty():
             # Wayland gives Qt an empty pixmap; sending it would just get a 400.
             log.warning("screen capture returned an empty image")
-            self._error(CAPTURE_FAILED)
+            self._say(f"**Oops:** {CAPTURE_FAILED}")
             return
-        self._busy("_Looking at your screen..._")
+        generation = self._begin()
+        self._say("_Looking at your screen..._")
 
         def done(lesson: learning.Lesson) -> None:
+            if not self._current(generation):
+                return
             if lesson.explanation:
-                self._show_answer(lesson.explanation)
-            else:
-                self._say("_No explanation returned._")
-                self._refresh_copy()
+                self._answer = lesson.explanation
+            self._end()
+            self._say(lesson.explanation or "_No explanation returned._")
             if lesson.annotations:
                 self.doodles.show_annotations(region, lesson.annotations)
 
         run_in_background(learning.explain_region, self.client, bytes(data),
-                          on_done=done, on_error=self._error)
+                          on_done=done, on_error=self._failed_for(generation))
 
     def meeting_notes(self) -> None:
         text = self.input.text().strip()
@@ -205,6 +254,22 @@ class KamiOverlay(QWidget):
             self._say("Live capture is coming soon. For now, paste a transcript into the "
                       "box and press **Meeting notes**.")
             return
-        self._busy("_Writing notes..._")
+        generation = self._begin()
+        self._say("_Writing notes..._")
+
+        def done(notes: str) -> None:
+            if not self._current(generation):
+                return
+            self._answer = notes
+            self._end()
+            self._say(notes)
+
         run_in_background(meetings.summarize_transcript, self.client, text,
-                          on_done=self._show_answer, on_error=self._error)
+                          on_done=done, on_error=self._failed_for(generation))
+
+    def _failed_for(self, generation: int):
+        def failed(message: str) -> None:
+            if self._current(generation):
+                self._end()
+                self._say(f"**Oops:** {message}")
+        return failed
