@@ -24,6 +24,11 @@ from kami.ui.worker import run_in_background
 
 log = logging.getLogger(__name__)
 
+CAPTURE_FAILED = (
+    "Kami couldn't capture your screen. On Wayland, screen capture isn't supported yet: "
+    'log in with "Ubuntu on Xorg" (or "GNOME on Xorg") to use Explain screen.'
+)
+
 STYLE = """
 #panel { background: #1E1B2E; border: 3px solid #FF6B9A; border-radius: 18px; }
 QLabel#title { color: #FFC93C; font-size: 22px; font-weight: 800; }
@@ -144,9 +149,14 @@ class KamiOverlay(QWidget):
         data = QByteArray()
         buffer = QBuffer(data)
         buffer.open(QIODevice.WriteOnly)
-        pixmap.save(buffer, "PNG")
+        saved = not pixmap.isNull() and pixmap.save(buffer, "PNG")
 
         self.summon()
+        if not saved or data.isEmpty():
+            # Wayland gives Qt an empty pixmap; sending it would just get a 400.
+            log.warning("screen capture returned an empty image")
+            self._error(CAPTURE_FAILED)
+            return
         self._say("_Looking at your screen..._")
 
         def done(lesson: learning.Lesson) -> None:
