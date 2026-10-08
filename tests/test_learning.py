@@ -135,3 +135,22 @@ def test_injection_text_stays_bounded():
 ])
 def test_is_safe_link(url, safe):
     assert is_safe_link(url) is safe
+
+
+def test_follow_up_conversation_carries_image_and_explanation():
+    from kami.modes.learning import USER_PROMPT, Lesson, follow_up_conversation
+
+    chat = follow_up_conversation(b"png-bytes", Lesson("Gradient descent.", []))
+    user, assistant = chat.turns
+    assert (user.role, user.text, user.image) == ("user", USER_PROMPT, b"png-bytes")
+    assert (assistant.role, assistant.text) == ("assistant", "Gradient descent.")
+    assert assistant.image is None
+
+
+def test_follow_up_uses_text_prompt():
+    from kami.modes.learning import FOLLOW_UP_PROMPT, SYSTEM_PROMPT, Lesson, follow_up_conversation
+
+    system = follow_up_conversation(b"p", Lesson("x")).messages_with("why?")[0]
+    assert system == {"role": "system", "content": FOLLOW_UP_PROMPT}
+    assert system["content"] != SYSTEM_PROMPT
+    assert "JSON" not in FOLLOW_UP_PROMPT.replace("no JSON", "")

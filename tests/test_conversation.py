@@ -71,3 +71,42 @@ def test_works_with_fake_llm(fake_llm):
     sent = fake_llm.calls[-1]["messages"]
     assert [m["role"] for m in sent] == ["system", "user", "assistant", "user"]
     assert sent[2]["content"] == "fake reply"
+
+
+def test_follow_up_sends_image_part():
+    from kami.modes.learning import Lesson, follow_up_conversation
+
+    chat = follow_up_conversation(b"\x89PNG", Lesson("A bar chart."))
+    messages = chat.messages_with("why?")
+    parts = messages[1]["content"]
+    assert messages[1]["role"] == "user"
+    assert parts[1]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert messages[2] == {"role": "assistant", "content": "A bar chart."}
+    assert messages[-1] == {"role": "user", "content": "why?"}
+
+
+def test_image_turn_survives_trimming():
+    chat = Conversation(max_turns=4, pinned=2)   # the pinned pair counts toward max_turns
+    chat.record("look", "a chart", image=b"png")
+    for i in range(5):
+        chat.record(f"q{i}", f"a{i}")
+    turns = chat.turns
+    assert turns[0].image == b"png"
+    assert [t.text for t in turns] == ["look", "a chart", "q4", "a4"]
+    assert chat.messages_with("next")[0]["content"][1]["type"] == "image_url"
+
+
+def test_image_turn_survives_char_trimming():
+    chat = Conversation(max_chars=50, pinned=2)
+    chat.record("look", "a chart", image=b"png")
+    chat.record("q", "x" * 100)
+    assert [t.text for t in chat.turns] == ["look", "a chart"]
+
+
+def test_clear_drops_image():
+    chat = Conversation()
+    chat.record("look", "a chart", image=b"png")
+    assert chat.has_image
+    chat.clear()
+    assert not chat.has_image
+    assert all(t.image is None for t in chat.turns)

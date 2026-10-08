@@ -33,6 +33,7 @@ CAPTURE_FAILED = (
 STYLE = """
 #panel { background: #1E1B2E; border: 3px solid #FF6B9A; border-radius: 18px; }
 QLabel#title { color: #FFC93C; font-size: 22px; font-weight: 800; }
+QLabel#context { color: #FFC93C; font-size: 12px; }
 QLineEdit { background: #2A2640; color: #FFF4DC; border: 2px solid #4A4560;
             border-radius: 10px; padding: 8px; font-size: 15px; }
 QLineEdit:disabled { color: #8A85A0; }
@@ -84,6 +85,11 @@ class KamiOverlay(QWidget):
             button.clicked.connect(slot)
             buttons.addWidget(button)
         layout.addLayout(buttons)
+
+        self.context = QLabel("📷 Asking about your screen capture · New chat to stop")
+        self.context.setObjectName("context")
+        self.context.hide()
+        layout.addWidget(self.context)
 
         self.input = QLineEdit()
         self.input.setPlaceholderText("Ask anything, then press Enter")
@@ -140,7 +146,10 @@ class KamiOverlay(QWidget):
     def _render_chat(self, pending: str | None = None, status: str = "") -> None:
         parts = []
         for turn in self.chat.turns:
-            parts.append(("**You:**" if turn.role == "user" else "**Kami:**") + "\n\n" + turn.text)
+            who = "**Kami:**" if turn.role == "assistant" else "**You:**"
+            if turn.image:
+                who += " _(screen capture)_"
+            parts.append(who + "\n\n" + turn.text)
         if pending is not None:
             parts.append("**You:**\n\n" + pending)
         if status:
@@ -174,9 +183,13 @@ class KamiOverlay(QWidget):
         self.input.setFocus()
         self.copy_button.setEnabled(bool(self._answer))
 
+    def _set_chat(self, chat: Conversation) -> None:
+        self.chat = chat   # the old chat (and any screenshot in it) is dropped here
+        self.context.setVisible(chat.has_image)
+
     def new_chat(self) -> None:
         self._generation += 1   # a reply still on its way now lands nowhere
-        self.chat.clear()
+        self._set_chat(Conversation())
         self._answer = ""
         self._end()
         self._render_chat()
@@ -189,7 +202,9 @@ class KamiOverlay(QWidget):
         self.input.clear()
         generation = self._begin()
         messages = self.chat.messages_with(question)
-        log.info("ask turns=%d chars=%d", len(self.chat.turns), self.chat.chars + len(question))
+        # Counts only: chat text and the screenshot never reach the log.
+        log.info("ask turns=%d chars=%d image=%s", len(self.chat.turns),
+                 self.chat.chars + len(question), "yes" if self.chat.has_image else "no")
         self._render_chat(question, "_Thinking..._")
 
         def done(answer: str) -> None:
@@ -235,17 +250,20 @@ class KamiOverlay(QWidget):
         generation = self._begin()
         self._say("_Looking at your screen..._")
 
+        png = bytes(data)
+
         def done(lesson: learning.Lesson) -> None:
             if not self._current(generation):
                 return
-            if lesson.explanation:
-                self._answer = lesson.explanation
+            # Follow-ups reuse this capture, are text-only, and never redraw the doodles.
+            self._set_chat(learning.follow_up_conversation(png, lesson))
+            self._answer = lesson.explanation
             self._end()
-            self._say(lesson.explanation or "_No explanation returned._")
+            self._render_chat()
             if lesson.annotations:
                 self.doodles.show_annotations(region, lesson.annotations)
 
-        run_in_background(learning.explain_region, self.client, bytes(data),
+        run_in_background(learning.explain_region, self.client, png,
                           on_done=done, on_error=self._failed_for(generation))
 
     def meeting_notes(self) -> None:
