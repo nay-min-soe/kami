@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QRect, Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication
@@ -59,6 +60,12 @@ class KamiOverlay(QWidget):
         self.chat = Conversation()
         self._answer = ""      # Markdown source of the last real answer, never status/errors
         self._generation = 0   # bumped per request and on New chat; stale replies are dropped
+        self._cancel: threading.Event | None = None      # set to stop the running stream
+        self._stream: tuple[str, list[str]] | None = None  # (question, pieces so far)
+        self._repaint = QTimer(self)
+        self._repaint.setSingleShot(True)
+        self._repaint.setInterval(50)   # repaint at most every 50 ms, not on every token
+        self._repaint.timeout.connect(self._paint_stream)
         self._build()
 
     # ---------- layout ----------
@@ -106,12 +113,16 @@ class KamiOverlay(QWidget):
 
         self.new_chat_button = QPushButton("New chat")
         self.new_chat_button.clicked.connect(self.new_chat)
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.clicked.connect(self._stop)
+        self.stop_button.hide()
         self.copy_button = QPushButton("Copy")
         self.copy_button.setEnabled(False)
         self.copy_button.clicked.connect(self._copy)
         row = QHBoxLayout()
         row.addWidget(self.new_chat_button)
         row.addStretch(1)
+        row.addWidget(self.stop_button)
         row.addWidget(self.copy_button)
         layout.addLayout(row)
 
@@ -143,7 +154,8 @@ class KamiOverlay(QWidget):
         bar = self.output.verticalScrollBar()
         bar.setValue(bar.maximum())
 
-    def _render_chat(self, pending: str | None = None, status: str = "") -> None:
+    def _render_chat(self, pending: str | None = None, status: str = "",
+                     reply: str | None = None) -> None:
         parts = []
         for turn in self.chat.turns:
             who = "**Kami:**" if turn.role == "assistant" else "**You:**"
@@ -152,6 +164,8 @@ class KamiOverlay(QWidget):
             parts.append(who + "\n\n" + turn.text)
         if pending is not None:
             parts.append("**You:**\n\n" + pending)
+        if reply is not None:
+            parts.append("**Kami:**\n\n" + reply)
         if status:
             parts.append(status)
         self._say("\n\n".join(parts) or "_New chat. Ask anything._")
@@ -168,8 +182,14 @@ class KamiOverlay(QWidget):
         QTimer.singleShot(1500, lambda: self.copy_button.setText("Copy"))
 
     # ---------- request lifecycle ----------
+    def _paint_stream(self) -> None:
+        if self._stream is not None:
+            question, pieces = self._stream
+            self._render_chat(question, reply="".join(pieces) + " ▍")
+
     def _begin(self) -> int:
         """Start a request: one at a time, so the input and Copy are off until it ends."""
+        self._abandon()
         self._generation += 1
         self.input.setEnabled(False)
         self.copy_button.setEnabled(False)
@@ -178,7 +198,17 @@ class KamiOverlay(QWidget):
     def _current(self, generation: int) -> bool:
         return generation == self._generation
 
+    def _abandon(self) -> None:
+        """Forget the running stream; the worker closes the connection at the next piece."""
+        if self._cancel is not None:
+            self._cancel.set()
+            self._cancel = None
+        self._stream = None
+        self._repaint.stop()
+        self.stop_button.hide()
+
     def _end(self) -> None:
+        self._abandon()
         self.input.setEnabled(True)
         self.input.setFocus()
         self.copy_button.setEnabled(bool(self._answer))
@@ -186,6 +216,22 @@ class KamiOverlay(QWidget):
     def _set_chat(self, chat: Conversation) -> None:
         self.chat = chat   # the old chat (and any screenshot in it) is dropped here
         self.context.setVisible(chat.has_image)
+
+    def _stop(self) -> None:
+        if self._stream is None:
+            return
+        question, pieces = self._stream
+        self._generation += 1   # whatever the worker still sends is dropped
+        partial = "".join(pieces)
+        if partial:
+            self.chat.record(question, partial + "\n\n_(stopped)_")
+            self._answer = partial
+        self._end()
+        if partial:
+            self._render_chat()
+        else:
+            self._render_chat(status="_(stopped)_")
+            self.input.setText(question)
 
     def new_chat(self) -> None:
         self._generation += 1   # a reply still on its way now lands nowhere
@@ -206,6 +252,16 @@ class KamiOverlay(QWidget):
         log.info("ask turns=%d chars=%d image=%s", len(self.chat.turns),
                  self.chat.chars + len(question), "yes" if self.chat.has_image else "no")
         self._render_chat(question, "_Thinking..._")
+        pieces: list[str] = []
+        self._cancel = cancel = threading.Event()
+        self._stream = (question, pieces)
+        self.stop_button.show()
+
+        def progress(piece: str) -> None:
+            if self._current(generation):
+                pieces.append(piece)
+                if not self._repaint.isActive():
+                    self._repaint.start()
 
         def done(answer: str) -> None:
             if not self._current(generation):
@@ -219,10 +275,13 @@ class KamiOverlay(QWidget):
             if not self._current(generation):
                 return
             self._end()
-            self._render_chat(question, f"**Oops:** {message}")
+            partial = "".join(pieces)
+            self._render_chat(question, f"**Oops:** {message}",
+                              reply=partial + "\n\n_(cut off)_" if partial else None)
             self.input.setText(question)   # easy to retry with Enter
 
-        run_in_background(self.client.chat, messages, on_done=done, on_error=failed)
+        run_in_background(self.client.chat_stream, messages, on_done=done, on_error=failed,
+                          on_progress=progress, cancel=cancel)
 
     def explain_screen(self) -> None:
         self.hide()
