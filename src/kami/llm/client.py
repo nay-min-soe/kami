@@ -135,13 +135,13 @@ class LLMClient:
         return self.chat(messages)
 
     def ask_about_image(self, png: bytes, prompt: str, system: str | None = None) -> str:
-        data_url = "data:image/png;base64," + base64.b64encode(png).decode()
         messages = [{"role": "system", "content": system}] if system else []
-        messages.append({
-            "role": "user",
-            "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": data_url}},
-            ],
-        })
+        messages.append({"role": "user", "content": [{"type": "text", "text": prompt},
+                                                     image_part(png)]})
         return self.chat(messages)
+
+
+def image_part(png: bytes) -> dict:
+    """One PNG as an OpenAI-style message part (base64 data URL)."""
+    data_url = "data:image/png;base64," + base64.b64encode(png).decode()
+    return {"type": "image_url", "image_url": {"url": data_url}}
