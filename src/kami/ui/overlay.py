@@ -33,6 +33,11 @@ CAPTURE_FAILED = (
     'log in with "Ubuntu on Xorg" (or "GNOME on Xorg") to use Explain screen.'
 )
 
+CONTEXT_READY = "📷 Screen captured · type your question, or press Enter to explain it"
+CONTEXT_CHAT = "📷 Asking about your screen capture · New chat to stop"
+PLACEHOLDER_ASK = "Ask anything, then press Enter"
+PLACEHOLDER_CAPTURE = "Ask about the capture (or just press Enter)"
+
 STYLE = """
 #panel { background: #1E1B2E; border: 3px solid #FF6B9A; border-radius: 18px; }
 QLabel#title { color: #FFC93C; font-size: 22px; font-weight: 800; }
@@ -61,6 +66,8 @@ class KamiOverlay(QWidget):
         self.selector.cancelled.connect(self.summon)
         self.doodles = AnnotationLayer()
         self.chat = Conversation()
+        # (png, region, screen) waiting for the user's question; memory only, never logged
+        self._capture: tuple[bytes, QRect, QRect] | None = None
         self._answer = ""      # Markdown source of the last real answer, never status/errors
         self._generation = 0   # bumped per request and on New chat; stale replies are dropped
         self._cancel: threading.Event | None = None      # set to stop the running stream
@@ -101,13 +108,13 @@ class KamiOverlay(QWidget):
         buttons.addWidget(self.keep_button)
         layout.addLayout(buttons)
 
-        self.context = QLabel("📷 Asking about your screen capture · New chat to stop")
+        self.context = QLabel(CONTEXT_CHAT)
         self.context.setObjectName("context")
         self.context.hide()
         layout.addWidget(self.context)
 
         self.input = QLineEdit()
-        self.input.setPlaceholderText("Ask anything, then press Enter")
+        self.input.setPlaceholderText(PLACEHOLDER_ASK)
         self.input.returnPressed.connect(self.ask)
         layout.addWidget(self.input)
 
@@ -224,8 +231,19 @@ class KamiOverlay(QWidget):
         self.copy_button.setEnabled(bool(self._answer))
 
     def _set_chat(self, chat: Conversation) -> None:
-        self.chat = chat   # the old chat (and any screenshot in it) is dropped here
-        self.context.setVisible(chat.has_image)
+        self.chat = chat   # the old chat and any screenshot (held or in it) are dropped here
+        self._capture = None
+        self._refresh_context()
+
+    def _refresh_context(self) -> None:
+        if self._capture is not None:
+            self.context.setText(CONTEXT_READY)
+            self.context.show()
+            self.input.setPlaceholderText(PLACEHOLDER_CAPTURE)
+        else:
+            self.context.setText(CONTEXT_CHAT)
+            self.context.setVisible(self.chat.has_image)
+            self.input.setPlaceholderText(PLACEHOLDER_ASK)
 
     def _stop(self) -> None:
         if self._stream is None:
@@ -253,7 +271,12 @@ class KamiOverlay(QWidget):
     # ---------- actions ----------
     def ask(self) -> None:
         question = self.input.text().strip()
-        if not question or not self.input.isEnabled():
+        if not self.input.isEnabled():
+            return
+        if self._capture is not None:
+            self._ask_about_capture(question)   # an empty question means "explain it"
+            return
+        if not question:
             return
         self.input.clear()
         generation = self._begin()
@@ -295,13 +318,14 @@ class KamiOverlay(QWidget):
 
     def explain_screen(self) -> None:
         self.hide()
+        self.doodles.clear()   # old doodles would end up in the new screenshot
         QTimer.singleShot(150, self.selector.start)
 
     def _on_region(self, region: QRect) -> None:
         # Give the selector a moment to disappear before capturing.
-        QTimer.singleShot(150, lambda: self._capture_and_explain(region))
+        QTimer.singleShot(150, lambda: self._capture_region(region))
 
-    def _capture_and_explain(self, region: QRect) -> None:
+    def _capture_region(self, region: QRect) -> None:
         screen = QGuiApplication.screenAt(region.center()) or QGuiApplication.primaryScreen()
         local = region.translated(-screen.geometry().topLeft())
         pixmap = screen.grabWindow(0, local.x(), local.y(), local.width(), local.height())
@@ -322,28 +346,50 @@ class KamiOverlay(QWidget):
             log.warning("screen capture returned an empty image")
             self._say(f"**Oops:** {CAPTURE_FAILED}")
             return
-        generation = self._begin()
-        self._say("_Looking at your screen..._")
-
-        png = bytes(data)
-
-        def done(lesson: learning.Lesson) -> None:
-            if not self._current(generation):
-                return
-            # Follow-ups reuse this capture, are text-only, and never redraw the doodles.
-            self._set_chat(learning.follow_up_conversation(png, lesson))
-            self._answer = lesson.explanation
-            self._end()
-            self._render_chat()
-            if lesson.annotations:
-                self.doodles.show_annotations(region, lesson.annotations, screen.geometry())
-
+        png, where = bytes(data), screen.geometry()
+        self.new_chat()   # a capture starts a fresh chat; anything still running is dropped
         if os.environ.get("KAMI_DEBUG_DOODLES") == "1":
             log.info("calibration mode: drawing the test pattern, no AI call")
-            done(learning.calibration_lesson())
+            self._show_lesson(png, region, where, "", learning.calibration_lesson())
             return
-        run_in_background(learning.explain_region, self.client, png,
-                          on_done=done, on_error=self._failed_for(generation))
+        # Nothing is sent yet: the user types a question first (or presses Enter).
+        self._capture = (png, region, where)
+        self._refresh_context()
+        log.info("capture ready bytes=%d", len(png))
+        self._say("_Screen captured. What do you want to know about it?_")
+        self.input.setFocus()
+
+    def _ask_about_capture(self, question: str) -> None:
+        png, region, where = self._capture
+        shown = learning.first_question(question)
+        self.input.clear()
+        generation = self._begin()
+        log.info("capture question chars=%d", len(question))
+        self._render_chat(shown, "_Looking at your screen..._")
+
+        def done(lesson: learning.Lesson) -> None:
+            if self._current(generation):
+                self._show_lesson(png, region, where, question, lesson)
+
+        def failed(message: str) -> None:
+            if not self._current(generation):
+                return
+            self._end()   # the capture is still held, so Enter tries again
+            self._render_chat(shown, f"**Oops:** {message}")
+            self.input.setText(question)
+
+        run_in_background(learning.explain_region, self.client, png, question,
+                          on_done=done, on_error=failed)
+
+    def _show_lesson(self, png: bytes, region: QRect, where: QRect, question: str,
+                     lesson: learning.Lesson) -> None:
+        # Follow-ups reuse this capture, are text-only, and never redraw the doodles.
+        self._set_chat(learning.follow_up_conversation(png, lesson, question))
+        self._answer = lesson.explanation
+        self._end()
+        self._render_chat()
+        if lesson.annotations:
+            self.doodles.show_annotations(region, lesson.annotations, where)
 
     def meeting_notes(self) -> None:
         text = self.input.text().strip()
