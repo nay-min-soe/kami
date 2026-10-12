@@ -163,3 +163,29 @@ def test_calibration_lesson_marks_corners_and_centre():
     circles = {(a.x, a.y) for a in lesson.annotations if a.type == "circle"}
     assert {(0, 0), (1, 0), (0, 1), (1, 1), (0.5, 0.5)} <= circles
     assert "KAMI_DEBUG_DOODLES" in lesson.explanation
+
+
+def test_explain_region_sends_the_users_question(fake_llm):
+    from kami.modes.learning import SYSTEM_PROMPT, explain_region
+
+    explain_region(fake_llm, b"png", "  what does the red line mean?  ")
+    call = fake_llm.calls[-1]
+    assert call["png"] == b"png"
+    assert call["prompt"] == "what does the red line mean?"
+    assert call["system"] == SYSTEM_PROMPT
+
+
+@pytest.mark.parametrize("question", ["", "   ", "\n"])
+def test_empty_question_means_explain(fake_llm, question):
+    from kami.modes.learning import USER_PROMPT, explain_region
+
+    explain_region(fake_llm, b"png", question)
+    assert fake_llm.calls[-1]["prompt"] == USER_PROMPT
+
+
+def test_follow_up_conversation_starts_with_the_question():
+    from kami.modes.learning import Lesson, follow_up_conversation
+
+    chat = follow_up_conversation(b"png", Lesson("It marks the limit."), "what's the red line?")
+    user = chat.turns[0]
+    assert (user.text, user.image) == ("what's the red line?", b"png")
