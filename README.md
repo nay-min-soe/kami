@@ -33,7 +33,7 @@ This lives in [`src/kami/safety.py`](src/kami/safety.py) and is covered by tests
 ```bash
 git clone https://github.com/<your-username>/kami.git
 cd kami
-python3 -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv-1 && source .venv-1/bin/activate
 pip install -e ".[hotkey,dev]"
 
 mkdir -p ~/.config/kami
