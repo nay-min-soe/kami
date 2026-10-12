@@ -82,7 +82,8 @@ Steps:
 6. `_use_picker()`:
    1. Return if `self.screenshots.busy`.
    2. Hide the button, `self.hide()`, set `self._picking = True` and `self._still = None`.
-   3. Record the start time.
+   3. Set `self._capture_started = time.monotonic()` (the attribute Task 3 sets in
+      `__init__`).
    4. `QTimer.singleShot(150, lambda: self.screenshots.request(interactive=True))`.
 7. In `_on_portal_file`, right after the null-image check:
    1. If `self._picking`: downscale, encode, and call `_hold_capture(png, None, None)`.

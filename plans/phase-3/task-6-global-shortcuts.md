@@ -210,6 +210,17 @@ class GlobalShortcuts:
                  *, timeout_s: float = BIND_TIMEOUT_MS / 1000,
                  connect: Callable[[], object] | None = None) -> None: ...
         # connect: returns a jeepney blocking connection (tests pass a fake)
+        # The client uses ONLY these members of the connection, so a fake needs nothing else:
+        #   conn.unique_name                                  -> str, e.g. ":1.42"
+        #   conn.send(msg)                                    -> None (Request.Close)
+        #   conn.send_and_get_reply(msg, timeout=s)           -> reply Message (GetNameOwner,
+        #       AddMatch, Properties.Get, CreateSession, BindShortcuts, Session.Close)
+        #   conn.filter(rule, bufsize=…)                      -> context manager yielding a queue
+        #   conn.recv_until_filtered(queue, timeout=s)        -> Message; raises TimeoutError
+        #   conn.close()                                      -> None
+        # Messages are built with jeepney.new_method_call / jeepney.message_bus (plain
+        # Message objects); no jeepney Proxy, so every bus call goes through
+        # send_and_get_reply and the fake can answer it by inspecting msg.header.fields.
     def start(self) -> None: ...        # starts the "kami-shortcuts" daemon thread; returns at once
     def close(self, wait_s: float = 1.5) -> None: ...
         # thread sends Session.Close (1 s), closes the connection; safe twice or before start
@@ -248,7 +259,7 @@ class HotkeyListener(QObject):
 | `src/kami/doctor.py` | `read_portal_versions`; `check_hotkey(env, combo, portals, has_jeepney)`; `collect(..., portals=None)` with the try / except above; `run_doctor` passes `read_portal_versions` |
 | `tests/test_session.py` | `portal_trigger` and fallback message cases; update the Task 2 fallback test |
 | `tests/test_portal.py` | unwrap, session / bind reply parsing, activation filter |
-| `tests/test_portal_shortcuts.py` | new: `bind_body`, and the thread with a fake connection |
+| `tests/test_portal_shortcuts.py` | new: `bind_body`, and the thread with a fake connection that has exactly the six members listed in the Contract (a test helper class in the test file) |
 | `tests/test_doctor.py` | Wayland rows; reader crash; rename `test_session_check_wayland_hotkey_fails` |
 | `config.example.toml` | comment on `[hotkey] toggle`: on Wayland these are the *preferred* keys, and the desktop has the last word; the portal needs `pip install 'kami[wayland]'` |
 | `ARCHITECTURE.md` | `portal_shortcuts.py` box in Core; **Libraries** row for jeepney (optional) |
@@ -294,8 +305,11 @@ Steps:
      - Import jeepney inside the thread function, so the module imports without it.
      - Follow Design steps 1–7, reusing `portal.new_token()` and `portal.request_path()`.
        `spike/shortcut.py` has working jeepney calls for every step (`MatchRule`,
-       `message_bus.AddMatch` through a `Proxy`, `conn.filter`, `recv_until_filtered`,
-       `Session.Close`). Copy those patterns, not its prints.
+       `AddMatch`, `conn.filter`, `recv_until_filtered`, `Session.Close`). Copy those
+       patterns, not its prints, with one change: build `GetNameOwner` / `AddMatch` as
+       messages (`message_bus.GetNameOwner(...)`, `message_bus.AddMatch(rule)`) and send
+       them with `send_and_get_reply`, instead of the spike's `Proxy`. The client uses
+       only the six connection members listed in the Contract.
      - Any exception on the thread → `on_bound(BindReply("failed", reason="dbus error"))`
        if `on_bound` hasn't been called yet. Then close the connection. Log the type name
        only.

@@ -348,11 +348,17 @@ Steps:
    - On hide (selected or cancelled), drop `self._background` and reset
      `self._screen_origin`.
 5. **`overlay.py`**:
-   1. Add `self.screenshots = ScreenshotPortal(self)` with
-      `finished.connect(self._on_portal_reply)`, and `self._still: QImage | None = None`.
+   1. In `__init__`, add:
+      - `self.screenshots = ScreenshotPortal(self)`, with
+        `finished.connect(self._on_portal_reply)`
+      - `self._still: QImage | None = None`
+      - `self._capture_started = 0.0`: `time.monotonic()` when a portal request starts;
+        the `ms=` log uses it. It's set in `__init__` so a reply handler never meets a
+        missing attribute. Task 4's `_use_picker` sets it too.
    2. **`explain_screen()`**:
       - On Wayland: return early if `self.screenshots.busy` or the selector is visible.
-        Remember `self._shot_screen = self.screen()`, record the start time, then `hide()`
+        Remember `self._shot_screen = self.screen()`, set
+        `self._capture_started = time.monotonic()`, then `hide()`
         and `self.doodles.clear()`. After `portal.HIDE_DELAY_MS`, call
         `self.screenshots.request(interactive=False)`.
       - On X11: today's code.
@@ -460,11 +466,13 @@ Steps:
 2. [ ] **Still-image flow, offscreen (no portal call).** In a throwaway script under
    `$TMPDIR`, run with `QT_QPA_PLATFORM=offscreen`:
    1. Create a `QApplication` and `KamiOverlay(Config(), Session("wayland", "gnome"))`.
-   2. Write a white 1920×1080 PNG into `$TMPDIR` and build
-      `LoadedShot(<its bytes>, True)`.
+   2. Build a white PNG **the size of the offscreen screen**,
+      `QGuiApplication.primaryScreen().geometry().size()`. That's 800×800 under
+      `offscreen`; a 1920×1080 image wouldn't match the layout, and `crop_rect` would
+      return `None`. Wrap it as `LoadedShot(<its bytes>, True)`.
    3. Set `overlay._shot_screen = QGuiApplication.primaryScreen()` and call
       `overlay._on_portal_file(shot)`. `overlay.selector.isVisible()` is `True`, and its
-      `_background` has the screen's size.
+      `_background` is 800×800.
    4. Emit `overlay.selector.selected.emit(QRect(100, 100, 400, 300))`.
       `overlay._capture` holds a PNG that decodes to 400×300, and `overlay._still` is
       `None`.

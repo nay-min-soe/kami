@@ -192,15 +192,18 @@ Tasks 3–7 are built. In short:
 - **X11 once per merged task** ("Ubuntu on Xorg"), to check nothing regressed.
 - **A second monitor or a different scale**, for Q4 / Q6 / Q7 and the multi-monitor crop.
   This machine has one 100 % screen.
-- **Starting Kami as Kami** (Task 7): install the desktop file, and check which app the
-  screenshot dialog names.
+- **Starting Kami as Kami** (Task 7):
+  - add the `~/.local/bin/kami` symlink
+  - rename your service to `app-org.kami.Kami.service`
+  - after a capture, check that `PermissionStore.Lookup screenshot screenshot` shows
+    `org.kami.Kami`
 - Optional: Fedora Workstation (GNOME 48+) in the same VM tool, to see the
   `GlobalShortcuts` path on GNOME too. Sway or Hyprland only if you use one.
 - A little OpenRouter credit (well under $0.10).
 
 ## Open questions
 
-### Answered by the spike (2026-10-12)
+### Answered (1–3 by the spike on 2026-10-12, 4 by you on 2026-10-13)
 
 1. **Does GNOME 46 ask permission for a non-interactive screenshot from an unsandboxed
    app, and does it remember?** Yes, once, and it remembers. But it remembers **per
@@ -216,14 +219,15 @@ Tasks 3–7 are built. In short:
    GNOME 46: the layer is opaque black outside the drawing, and it takes focus.
    GNOME gets in-panel doodles, and `ON_SCREEN_DESKTOPS` stays empty.
 
-### Still open
-
-4. **How do you start Kami day to day?** From a terminal, VS Code, the app grid, or a
-   systemd user service? The screenshot grant follows whatever starts it (Q2). Task 7's
-   docs cover the app grid (with the desktop file) and `systemd-run --scope`. If you use
-   a systemd user service, its unit name decides the app id. That way isn't measured
-   yet, so the plan doesn't claim anything about it. Tell Claude, and the README will
-   cover your way.
+4. **How do you start Kami day to day?** As the systemd user service
+   `~/.config/systemd/user/kami.service` (answered 2026-10-13). That unit name gives
+   xdg-desktop-portal no app id. Task 7 documents renaming it to
+   `app-org.kami.Kami.service` (`disable --now`, `mv`, `daemon-reload`, `enable --now`).
+   It also documents the `~/.local/bin/kami` symlink that the desktop file and
+   `systemd-run` need: the session PATH has `~/.local/bin` but not `.venv-1/bin`. It
+   also gives the `sh -c '…$$…'` form for a GNOME custom shortcut. Whether the grant
+   then lands under `org.kami.Kami` is **unmeasured** until your Task 7 hand check is
+   ticked.
 
 ## Closing the phase
 

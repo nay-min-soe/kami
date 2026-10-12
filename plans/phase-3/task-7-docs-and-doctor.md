@@ -46,15 +46,42 @@ hotkey) permission under one stable name.
 
   No icon yet: Phase 7 brings the real icon. Kami's code doesn't read this file, and
   nothing installs it automatically.
-- **Document** two ways to start Kami as `org.kami.Kami`, in a README section "One
-  permission for Kami (Wayland)":
-  1. Copy the file to `~/.local/share/applications/` and start **Kami** from the app grid.
-     The desktop launches desktop entries in their own scope.
-  2. From a terminal or a custom shortcut:
-     `systemd-run --user --scope --unit=app-org.kami.Kami-$$ kami`.
+- **Document** three ways to start Kami as `org.kami.Kami`, in a README section "One
+  permission for Kami (Wayland)". First, one setup step for all three:
+  - **Put `kami` on the session PATH.** The desktop file's `Exec=kami` and `systemd-run`
+    look `kami` up on the *session* PATH, not your shell's. On this machine the session
+    PATH starts with `~/.local/bin`, and `kami` is only in `.venv-1/bin`. So:
+    `ln -s ~/Downloads/kami-scaffold/.venv-1/bin/kami ~/.local/bin/kami`.
 
-  Whether GNOME's dialog then names "Kami", and the grant shows up under
-  `org.kami.Kami`, is your hand check. The README states only what was checked.
+  Then:
+  1. **App grid.** Copy the file to `~/.local/share/applications/` and start **Kami**
+     from the app grid. The desktop launches desktop entries in their own scope.
+  2. **Terminal or custom shortcut.** In a terminal:
+     `systemd-run --user --scope --unit=app-org.kami.Kami-$$ kami`. That bare form is
+     for a terminal only: it needs a shell to expand `$$`, and `$` isn't valid in a unit
+     name. A GNOME custom shortcut runs no shell, so there the command is
+     `sh -c 'exec systemd-run --user --scope --unit=app-org.kami.Kami-$$ kami'`.
+  3. **The systemd user service** (how you start Kami day to day). Your unit is
+     `~/.config/systemd/user/kami.service` (`ExecStart=…/.venv-1/bin/kami`,
+     `EnvironmentFile=%h/.config/kami/secrets.env`; disabled and inactive on
+     2026-10-13). The name `kami.service` gives xdg-desktop-portal no app id. Rename it
+     so the unit name carries one:
+
+     ```bash
+     systemctl --user disable --now kami.service
+     mv ~/.config/systemd/user/kami.service ~/.config/systemd/user/app-org.kami.Kami.service
+     systemctl --user daemon-reload
+     systemctl --user enable --now app-org.kami.Kami.service
+     ```
+
+     The file's contents don't change: `ExecStart` already uses the full path.
+
+     **Builders only document these commands.** They don't run them, create the
+     symlink, or touch `~/.config/systemd`. That's your machine setup (Yours, below).
+
+  Whether the dialog then names "Kami", and the grant shows up under `org.kami.Kami`, is
+  **unmeasured** for all three ways until your hand check is ticked. The README marks
+  each way *"(not checked yet)"* until then, and states only what was checked.
 - Not in this phase: a `kami install` command, autostart, changing how `kami` launches
   itself. Those are Phase 7.
 
@@ -128,7 +155,8 @@ included), and this task passes them on to the screen-grab row too.
   - the screenshot file goes to `~/Pictures/` for a moment and Kami deletes it (Q3)
   - where the doodles appear and why
   - the panel opens where the desktop puts it (Decision 3)
-  - `KAMI_DOODLES=panel` / `screen`, with the GNOME 46 warning for `screen`
+  - `KAMI_DOODLES=panel` / `screen`, with the GNOME 46 warning for `screen` (black screen
+    for 25 s; 📌 Keep is ignored; the hotkey or tray icon clears it)
   - the hotkey: `pip install 'kami[wayland]'`, and the desktop's own dialog
 - The "One permission for Kami (Wayland)" section from Design.
 - Roadmap list: tick "Wayland screen capture via the XDG desktop portal".
@@ -191,7 +219,9 @@ Steps:
 
 - [ ] `test_portal_package_per_desktop` in `tests/test_session.py`
 - [ ] `test_desktop_file_names_kami` in `tests/test_packaging.py`:
-  - `configparser` (with `interpolation=None`) reads `packaging/org.kami.Kami.desktop`
+  - `configparser.ConfigParser(interpolation=None)` with `parser.optionxform = str`
+    (otherwise keys are lowercased, and `Exec` becomes `exec`) reads
+    `packaging/org.kami.Kami.desktop`
   - `[Desktop Entry]` has `Type=Application`, `Name=Kami` and `Exec=kami`
   - the file name minus `.desktop` is `org.kami.Kami`
 - [ ] `test_doctor_x11_rows` in `tests/test_doctor.py` (screen grab `✓ X11`, doodles `✓ on screen`)
@@ -212,19 +242,29 @@ reads two properties only.
       (Screenshot v2, GNOME panel note, GNOME hotkey fix)
 - [ ] `KAMI_DOODLES=panel .venv-1/bin/python -m kami doctor` shows
       `Doodles – in the panel (KAMI_DOODLES=panel)`
-- [ ] `desktop-file-validate packaging/org.kami.Kami.desktop` prints nothing, if the tool
-      is installed. If it isn't, say so in the report
+- [ ] `desktop-file-validate packaging/org.kami.Kami.desktop` prints nothing (required: the
+      tool is installed here, `/usr/bin/desktop-file-validate`)
 - [ ] Every row of the README desktops table has a date, "not tested yet" or
       "(expected)" where nothing was measured
 
 Yours (in `your-checklist.md`):
 
-- [ ] Copy `packaging/org.kami.Kami.desktop` to `~/.local/share/applications/` and start
-      **Kami** from the app grid. Remove the VS Code grant first (Task 1's How to rerun,
-      Q2). Does the screenshot dialog name "Kami"? Then run
-      `gdbus call --session --dest org.freedesktop.impl.portal.PermissionStore --object-path /org/freedesktop/impl/portal/PermissionStore --method org.freedesktop.impl.portal.PermissionStore.Lookup screenshot screenshot`
-      and check which id the grant is stored under
-- [ ] The same with `systemd-run --user --scope --unit=app-org.kami.Kami-$$ kami`
+- [ ] Setup: `ln -s ~/Downloads/kami-scaffold/.venv-1/bin/kami ~/.local/bin/kami`
+- [ ] **Systemd service** (your daily way; unmeasured until ticked):
+      1. Run the four `systemctl` / `mv` lines in Design, way 3.
+      2. Do one Explain screen capture, and answer the dialog if one appears.
+      3. Run `gdbus call --session --dest org.freedesktop.impl.portal.PermissionStore --object-path /org/freedesktop/impl/portal/PermissionStore --method org.freedesktop.impl.portal.PermissionStore.Lookup screenshot screenshot`.
+      It shows `org.kami.Kami` among the ids. Tell Claude what it printed.
+- [ ] **App grid**: copy `packaging/org.kami.Kami.desktop` to
+      `~/.local/share/applications/`. Stop the service first
+      (`systemctl --user stop app-org.kami.Kami.service`), then start **Kami** from the
+      app grid. Does the dialog name "Kami"? `Lookup` (same command) shows
+      `org.kami.Kami`
+- [ ] **Terminal**: `systemd-run --user --scope --unit=app-org.kami.Kami-$$ kami` from a
+      terminal, the same `Lookup`. Optional: a GNOME custom shortcut with
+      `sh -c 'exec systemd-run --user --scope --unit=app-org.kami.Kami-$$ kami'`
+- [ ] Afterwards, the VS Code grant is still there for the builders (if it's gone, see
+      `your-checklist.md` section 5, step 4)
 - [ ] `kami doctor` on KDE Wayland and on X11 matches the README table
 - [ ] Fill in the "Tested" dates for the rows you checked (or tell Claude the results)
 
@@ -238,7 +278,7 @@ printed.
 
 - [ ] All tests above pass with the earlier ones, and ruff is clean
 - [ ] `kami doctor` on this machine matches the Design sample
-- [ ] `packaging/org.kami.Kami.desktop` exists and passes its test
+- [ ] `packaging/org.kami.Kami.desktop` exists, passes its test and `desktop-file-validate`
 - [ ] The README has the Desktops table with no guessed cells, the "One permission for
       Kami" section, and the roadmap tick
 - [ ] `/docs-sync` reports nothing out of date

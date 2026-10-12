@@ -29,7 +29,12 @@ Kami says why in one line. Clicking that copy opens it larger. X11 doodles don't
    `setScreen(s)` + `setGeometry(s.geometry())` + `showFullScreen()`. Its origin is the
    screen's top-left, so the doodles are drawn at `region − screen.topLeft()`
    (`geometry.local_region`), and no window positioning is needed. The 25 s fade,
-   **📌 Keep** and **Clear doodles** work as today.
+   **Clear doodles** works as today. Two differences from the X11 layer, because on
+   GNOME 46 this layer is black and on top (Q5), and the panel's **Clear doodles** button
+   would be underneath it:
+   - **📌 Keep is ignored**: the full-screen layer always fades after 25 s.
+   - **`summon()` clears it**: the hotkey, the tray icon or `kami toggle` bring the
+     panel back and remove the layer at once.
 
    Task 1, Q6 measured that `geometry()`, `screen()` and `isVisible()` are already right
    straight after `showFullScreen()`, before the compositor shows anything. Only
@@ -64,7 +69,7 @@ code moves into the shared function, with `ink = 1.0`, so it draws the same pixe
 |---|---|---|---|
 | 1 | `env["KAMI_DOODLES"] == "panel"` | panel | `forced` |
 | 2 | `not region_known` (picker capture) | panel | `picker` |
-| 3 | `env["KAMI_DOODLES"] == "screen"` | screen | `""` (a test switch, for trying a desktop that isn't on the list yet. On GNOME 46 it blacks out the screen and takes focus until the doodles fade, Q5) |
+| 3 | `env["KAMI_DOODLES"] == "screen"` | screen | `""` (a test switch, for trying a desktop that isn't on the list yet. On GNOME 46 it blacks out the screen and takes focus (Q5) until the doodles fade after 25 s, which 📌 Keep can't stop, or until you press the hotkey / click the tray icon, which brings the panel back and clears it) |
 | 4 | `session.kind != "wayland"` | screen | `""` (X11 / unknown: today's layer) |
 | 5 | `session.desktop in ON_SCREEN_DESKTOPS` | screen | `""` |
 | 6 | otherwise | panel | `desktop` |
@@ -113,7 +118,8 @@ Later results with the same reason show the image without the line.
 - The preview pixmap is built from the held PNG in memory and never written to disk.
   **New chat**, a new capture and **Clear doodles** drop it and hide the label. Follow-up
   answers keep it, because they're about the same capture.
-- **📌 Keep** applies only to the on-screen layer. The panel copy doesn't fade.
+- **📌 Keep** applies only to X11's small on-screen layer. The full-screen Wayland layer
+  ignores it (see "Two ways"), and the panel copy doesn't fade.
 - `KAMI_DEBUG_DOODLES=1` (calibration) goes through the same choice, so the calibration
   pattern shows in whichever place the user would get. `learning.calibration_lesson` uses
   fractions of the image and needs no change.
@@ -172,7 +178,7 @@ Steps:
 |---|---|
 | `src/kami/ui/annotation.py` | `paint_doodles()`; `AnnotationLayer.show_fullscreen()` + `layer_failed` signal; `render_doodled()`; `DoodlePreview` window |
 | `src/kami/ui/overlay.py` | preview label + "why" line under the chat; panel grows while the preview shows; `_show_lesson` follows `doodle_plan`; Clear / New chat / new capture drop the preview |
-| `README.md` | Explain screen row and Wayland notes: where doodles appear and why, `KAMI_DOODLES=panel` / `screen` |
+| `README.md` | Explain screen row and Wayland notes: where doodles appear and why, `KAMI_DOODLES=panel` / `screen`. The warning for `screen`: on GNOME 46 the screen goes black for 25 s, 📌 Keep is ignored, and the hotkey or tray icon clears it at once |
 | `ARCHITECTURE.md` | annotation box: "on screen, or in the panel on Wayland"; "How Explain screen works" step 5 |
 
 Steps:
@@ -187,7 +193,9 @@ Steps:
    1. Set `self._region` from `local_region(_rect(region), _rect(screen.geometry()))`.
    2. Remember `self._target = screen`, then call `setScreen(screen)`,
       `setGeometry(screen.geometry())` and `showFullScreen()`.
-   3. Start the same fade / keep timer as `show_annotations`.
+   3. Start the fade timer **ignoring `self._keep`**, and set `self._fullscreen = True`.
+      While `_fullscreen` is set, `set_keep(True)` doesn't stop the timer. `clear()`
+      resets `_fullscreen` to `False`. Add a read-only property `is_fullscreen`.
    4. `QTimer.singleShot(LAYER_CHECK_MS, self._check_layer)`. `_check_layer` does nothing
       if the layer was cleared meanwhile. If `self.windowHandle()` is `None` or
       `not self.windowHandle().isExposed()`, it calls `clear()` and emits
@@ -227,13 +235,16 @@ Steps:
      preview pixmap (`render_doodled(png, items, 488, 160, source_w)`), shows it, grows
      the panel, and shows the `why` line only if `reason not in self._notes_shown`.
    - Log the `doodles mode=…` line.
-7. **Dropping the preview**: `_set_chat` (New chat and new capture) and the
+7. **`summon()`**: as its first line, `if self.doodles.is_fullscreen:
+   self.doodles.clear()`. The X11 small layer isn't affected (`is_fullscreen` is
+   `False` there), so X11 behaviour doesn't change.
+8. **Dropping the preview**: `_set_chat` (New chat and new capture) and the
    **Clear doodles** button also hide `self.preview` and `self.why`, close
    `DoodlePreview`, and set `self._preview_src = None`. The Clear button gets a small
    slot that calls `self.doodles.clear()` and then this.
-8. Remove Task 3's temporary `self.session.capture == "x11"` guard in `_show_lesson`. The
+9. Remove Task 3's temporary `self.session.capture == "x11"` guard in `_show_lesson`. The
    plan replaces it.
-9. `.venv-1/bin/python -m pytest -q` and `.venv-1/bin/ruff check .`.
+10. `.venv-1/bin/python -m pytest -q` and `.venv-1/bin/ruff check .`.
 
 ## Tests
 
@@ -272,6 +283,12 @@ Every script runs with `QT_QPA_PLATFORM=offscreen` and under `env -u KAMI_DOODLE
       learning.calibration_lesson())`. Then `overlay.preview.isVisibleTo(overlay)` is
       `True`, `overlay.height() > 460`, and `overlay.why.text()` names GNOME. After
       `overlay.new_chat()`, the preview is hidden and `overlay.height() == 460`
+- [ ] Same command, the escape routes:
+      1. `overlay.doodles.show_fullscreen(QRect(10, 10, 100, 100),
+         learning.calibration_lesson().annotations, QGuiApplication.primaryScreen())`,
+         then `overlay.doodles.set_keep(True)`. The fade timer is still active.
+      2. Then `overlay.summon()`: `overlay.doodles.is_fullscreen` is `False` and the
+         layer is hidden.
 - [ ] `git diff` of `ui/annotation.py`: every size in `paint_doodles` is today's constant
       times `ink`, and `AnnotationLayer.paintEvent` passes no `ink` (so 1.0)
 
