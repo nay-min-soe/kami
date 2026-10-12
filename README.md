@@ -59,6 +59,10 @@ Misspelled keys are reported as warnings in the terminal.
 
 `kami toggle` also works on X11 and shows or hides the running instance.
 
+Kami checks once at start-up which one you're on (`XDG_SESSION_TYPE`, or
+`WAYLAND_DISPLAY` / `DISPLAY` if that's missing). `kami doctor` shows it on the
+**Session** row, and the log's first line says it too.
+
 ### Several monitors and HiDPI (X11)
 
 - The panel opens on the monitor under your mouse, and Explain screen works on the
@@ -79,6 +83,7 @@ src/kami/
   config.py           ~/.config/kami/config.toml (validated) + env var API key
   conversation.py     short in-memory chat history for Ask
   geometry.py         screen maths for doodles and captures (no Qt)
+  session.py          X11 or Wayland, which desktop, and what Kami can do there (no Qt)
   logs.py             log file with key redaction
   hotkey.py           global hotkey (X11 via pynput)
   safety.py           allowlist + confirm-before-sensitive-actions gate
@@ -110,9 +115,9 @@ The full phase-by-phase plan is in [MILESTONES.md](MILESTONES.md).
 ## Troubleshooting
 
 Run `kami doctor` first. It works without a display (e.g. over SSH) and prints what
-works and what doesn't: session type, config, whether a key is set (never the key
-itself), whether the endpoint and model answer, the hotkey, and screen capture. It
-exits with 1 if anything is ✗, and it never sends a chat request, so it costs nothing.
+works and what doesn't: session type and desktop, config, whether a key is set (never
+the key itself), whether the endpoint and model answer, the hotkey, and screen capture.
+It exits with 1 if anything is ✗, and it never sends a chat request, so it costs nothing.
 `kami --version` prints the version.
 
 Kami writes a log to `~/.local/state/kami/kami.log` (rotated at 1 MB). It records what
