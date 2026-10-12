@@ -28,6 +28,8 @@ is checked automatically.
   `pytest` runs without a display.
 - Run `/security-check` on tasks that touch `llm/`, `config.py` or logging (3, 4, 5, 7).
 - Update `README.md` / `config.example.toml` when behaviour changes (`/docs-sync`).
+- When a task is done, add a plain-language recap to [task-recaps.md](../task-recaps.md)
+  and update [ARCHITECTURE.md](../../ARCHITECTURE.md) if a component changed (`/task-recap`).
 
 ## Phase exit criteria
 
