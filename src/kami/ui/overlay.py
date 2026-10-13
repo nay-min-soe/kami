@@ -1,4 +1,8 @@
-"""The panel that pops up on the hotkey."""
+"""Kami's panel inside the notch: Ask, Explain screen, Meeting notes.
+
+The notch shell (pill, expand/collapse, status card, chips) is `ui/island.py`; this
+file fills it and runs the requests. The mascot's mood follows each request.
+"""
 from __future__ import annotations
 
 import logging
@@ -13,8 +17,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QTextBrowser,
-    QVBoxLayout,
-    QWidget,
 )
 
 from kami.config import Config
@@ -24,6 +26,7 @@ from kami.llm import LLMClient
 from kami.modes import learning, meetings
 from kami.session import Session, capture_failed_message
 from kami.ui.annotation import AnnotationLayer
+from kami.ui.island import Island
 from kami.ui.region_select import RegionSelector
 from kami.ui.worker import run_in_background
 
@@ -35,26 +38,27 @@ PLACEHOLDER_ASK = "Ask anything, then press Enter"
 PLACEHOLDER_CAPTURE = "Ask about the capture (or just press Enter)"
 
 STYLE = """
-#panel { background: #1E1B2E; border: 3px solid #FF6B9A; border-radius: 18px; }
-QLabel#title { color: #FFC93C; font-size: 22px; font-weight: 800; }
 QLabel#context { color: #FFC93C; font-size: 12px; }
-QLineEdit { background: #2A2640; color: #FFF4DC; border: 2px solid #4A4560;
-            border-radius: 10px; padding: 8px; font-size: 15px; }
+QLineEdit { background: #1E1B2E; color: #FFF4DC; border: 2px solid #2A2640;
+            border-radius: 12px; padding: 8px; font-size: 15px; }
+QLineEdit:focus { border-color: #FF6B9A; }
 QLineEdit:disabled { color: #8A85A0; }
-QTextBrowser { background: #2A2640; color: #FFF4DC; border: none;
-               border-radius: 10px; padding: 8px; font-size: 14px; }
-QPushButton { background: #FFC93C; color: #1E1B2E; border: none; border-radius: 10px;
-              padding: 8px 12px; font-weight: 700; }
-QPushButton:hover { background: #FF6B9A; }
-QPushButton:disabled { background: #4A4560; color: #8A85A0; }
-QPushButton:checked { background: #FF6B9A; }
+QTextBrowser { background: #1E1B2E; color: #FFF4DC; border: none;
+               border-radius: 14px; padding: 8px; font-size: 14px; }
+QPushButton { background: #2A2640; color: #FFF4DC; border: none; border-radius: 12px;
+              padding: 7px 14px; font-weight: 700; }
+QPushButton:hover { background: #4A4560; }
+QPushButton:disabled { background: #1E1B2E; color: #4A4560; }
+QPushButton#stop { background: #FF6B9A; color: #1E1B2E; }
 """
 
+# Chip colours; the pill's four dots use them too.
+CHIP_PINK, CHIP_YELLOW, CHIP_MUTED, CHIP_CREAM = "#FF6B9A", "#FFC93C", "#8A85A0", "#FFF4DC"
 
-class KamiOverlay(QWidget):
+
+class KamiOverlay(Island):
     def __init__(self, config: Config, session: Session) -> None:
-        super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        super().__init__()
         self.config = config
         self.session = session   # from session.detect() in app.py; never re-read here
         self.client = LLMClient(config.llm)
@@ -77,34 +81,19 @@ class KamiOverlay(QWidget):
 
     # ---------- layout ----------
     def _build(self) -> None:
-        panel = QWidget()
-        panel.setObjectName("panel")
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(panel)
-
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(16, 14, 16, 16)
-        title = QLabel("Kami")
-        title.setObjectName("title")
-        layout.addWidget(title)
-
-        buttons = QHBoxLayout()
-        for text, slot in (
-            ("Explain screen", self.explain_screen),
-            ("Meeting notes", self.meeting_notes),
-            ("Clear doodles", self.doodles.clear),
+        self.pill_clicked.connect(self._open)
+        for text, color, slot in (
+            ("Explain screen", CHIP_PINK, self.explain_screen),
+            ("Meeting notes", CHIP_YELLOW, self.meeting_notes),
+            ("Clear doodles", CHIP_MUTED, self.doodles.clear),
         ):
-            button = QPushButton(text)
-            button.clicked.connect(slot)
-            buttons.addWidget(button)
-        self.keep_button = QPushButton("📌 Keep")
+            self.add_chip(text, color).clicked.connect(slot)
+        self.keep_button = self.add_chip("Keep", CHIP_CREAM)
         self.keep_button.setCheckable(True)
         self.keep_button.setToolTip("Keep doodles on screen until you click Clear doodles")
         self.keep_button.toggled.connect(self.doodles.set_keep)
-        buttons.addWidget(self.keep_button)
-        layout.addLayout(buttons)
 
+        layout = self.body
         self.context = QLabel(CONTEXT_CHAT)
         self.context.setObjectName("context")
         self.context.hide()
@@ -113,6 +102,7 @@ class KamiOverlay(QWidget):
         self.input = QLineEdit()
         self.input.setPlaceholderText(PLACEHOLDER_ASK)
         self.input.returnPressed.connect(self.ask)
+        self.input.textEdited.connect(self._typing)
         layout.addWidget(self.input)
 
         self.output = QTextBrowser()
@@ -123,14 +113,12 @@ class KamiOverlay(QWidget):
         self.output.anchorClicked.connect(self._open_link)
         layout.addWidget(self.output, 1)
 
-        self.new_chat_button = QPushButton("New chat")
-        self.new_chat_button.clicked.connect(self.new_chat)
-        self.stop_button = QPushButton("Stop")
-        self.stop_button.clicked.connect(self._stop)
+        self.new_chat_button = self._button("New chat", self._new_chat_clicked)
+        self.stop_button = self._button("Stop", self._stop)
+        self.stop_button.setObjectName("stop")
         self.stop_button.hide()
-        self.copy_button = QPushButton("Copy")
+        self.copy_button = self._button("Copy", self._copy)
         self.copy_button.setEnabled(False)
-        self.copy_button.clicked.connect(self._copy)
         row = QHBoxLayout()
         row.addWidget(self.new_chat_button)
         row.addStretch(1)
@@ -138,29 +126,50 @@ class KamiOverlay(QWidget):
         row.addWidget(self.copy_button)
         layout.addLayout(row)
 
-        self.setStyleSheet(STYLE)
-        self.resize(520, 460)
+        self.setStyleSheet(self.styleSheet() + STYLE)   # after the island's own style
+
+    def _button(self, text: str, slot) -> QPushButton:
+        button = QPushButton(text)
+        button.clicked.connect(self.mascot.hop)   # every click gets a little hop
+        button.clicked.connect(slot)
+        return button
 
     # ---------- show / hide ----------
+    # The pill stays on screen; the hotkey opens and folds it. Only Explain screen
+    # hides the window, so it never ends up in the screenshot.
     def toggle(self) -> None:
-        if self.isVisible():
-            self.hide()
+        if self.isVisible() and self.is_expanded:
+            self.collapse()
         else:
             self.summon()
 
     def summon(self) -> None:
         # Open on the monitor you're working on, not always the primary one.
         here = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
-        screen = here.availableGeometry()
-        self.move(screen.right() - self.width() - 24, screen.top() + 48)
+        self.place(here)
+        if self.isVisible() and not self.isActiveWindow():
+            self.hide()   # a fresh show takes the keyboard, like the old panel did
+        self.show_quietly(False)
         self.show()
+        self._open()
+
+    def _open(self) -> None:
+        """Expand and take the keyboard. A click on the pill comes straight here: the
+        click already focused the window, so there's no re-show (and no flicker)."""
+        self.expand()
         self.raise_()
         self.activateWindow()
         self.input.setFocus()
+        if self.input.isEnabled():   # not while a reply is still on its way
+            self.set_status("Ready", "listening")
 
     def keyPressEvent(self, e) -> None:
         if e.key() == Qt.Key_Escape:
-            self.hide()
+            self.collapse()
+
+    def _typing(self) -> None:
+        if self.input.isEnabled():
+            self.set_mood("listening")
 
     # ---------- output ----------
     def _say(self, text: str) -> None:
@@ -200,6 +209,20 @@ class KamiOverlay(QWidget):
         if self._stream is not None:
             question, pieces = self._stream
             self._render_chat(question, reply="".join(pieces) + " ▍")
+            self._talk()
+
+    def _talk(self) -> None:
+        """Mascot: start talking on the first repaint, then a little nudge per repaint."""
+        if self.mood != "talking":
+            self.set_status("Writing...", "talking")
+        else:
+            self.mascot.pulse()
+
+    def _react(self, text: str, mood: str) -> None:
+        """A request ended. Folded into the pill? Then the pill hops too, but stays shut."""
+        self.set_status(text, mood)
+        if not self.is_expanded:
+            self.mascot.hop()
 
     def _begin(self) -> int:
         """Start a request: one at a time, so the input and Copy are off until it ends."""
@@ -257,6 +280,7 @@ class KamiOverlay(QWidget):
         else:
             self._render_chat(status="_(stopped)_")
             self.input.setText(question)
+        self.set_status("Stopped", "idle")
 
     def new_chat(self) -> None:
         self._generation += 1   # a reply still on its way now lands nowhere
@@ -264,6 +288,10 @@ class KamiOverlay(QWidget):
         self._answer = ""
         self._end()
         self._render_chat()
+
+    def _new_chat_clicked(self) -> None:
+        self.new_chat()
+        self.set_status("New chat", "idle")
 
     # ---------- actions ----------
     def ask(self) -> None:
@@ -282,6 +310,7 @@ class KamiOverlay(QWidget):
         log.info("ask turns=%d chars=%d image=%s", len(self.chat.turns),
                  self.chat.chars + len(question), "yes" if self.chat.has_image else "no")
         self._render_chat(question, "_Thinking..._")
+        self.set_status("Thinking...", "thinking")
         pieces: list[str] = []
         self._cancel = cancel = threading.Event()
         self._stream = (question, pieces)
@@ -300,6 +329,7 @@ class KamiOverlay(QWidget):
             self._answer = answer
             self._end()
             self._render_chat()
+            self._react("Done", "happy")
 
         def failed(message: str) -> None:
             if not self._current(generation):
@@ -309,11 +339,13 @@ class KamiOverlay(QWidget):
             self._render_chat(question, f"**Oops:** {message}",
                               reply=partial + "\n\n_(cut off)_" if partial else None)
             self.input.setText(question)   # easy to retry with Enter
+            self._react("Oops", "worried")
 
         run_in_background(self.client.chat_stream, messages, on_done=done, on_error=failed,
                           on_progress=progress, cancel=cancel)
 
     def explain_screen(self) -> None:
+        self.set_status("Pick an area", "capture")
         self.hide()
         self.doodles.clear()   # old doodles would end up in the new screenshot
         QTimer.singleShot(150, self.selector.start)
@@ -342,6 +374,7 @@ class KamiOverlay(QWidget):
             # Wayland gives Qt an empty pixmap; sending it would just get a 400.
             log.warning("screen capture returned an empty image")
             self._say(f"**Oops:** {capture_failed_message(self.session)}")
+            self.set_status("Capture failed", "worried")
             return
         png, where = bytes(data), screen.geometry()
         self.new_chat()   # a capture starts a fresh chat; anything still running is dropped
@@ -354,6 +387,7 @@ class KamiOverlay(QWidget):
         self._refresh_context()
         log.info("capture ready bytes=%d", len(png))
         self._say("_Screen captured. What do you want to know about it?_")
+        self.set_status("Screen captured", "listening")
         self.input.setFocus()
 
     def _ask_about_capture(self, question: str) -> None:
@@ -363,6 +397,7 @@ class KamiOverlay(QWidget):
         generation = self._begin()
         log.info("capture question chars=%d", len(question))
         self._render_chat(shown, "_Looking at your screen..._")
+        self.set_status("Looking at your screen...", "thinking")
 
         def done(lesson: learning.Lesson) -> None:
             if self._current(generation):
@@ -374,6 +409,7 @@ class KamiOverlay(QWidget):
             self._end()   # the capture is still held, so Enter tries again
             self._render_chat(shown, f"**Oops:** {message}")
             self.input.setText(question)
+            self._react("Oops", "worried")
 
         run_in_background(learning.explain_region, self.client, png, question,
                           on_done=done, on_error=failed)
@@ -385,6 +421,7 @@ class KamiOverlay(QWidget):
         self._answer = lesson.explanation
         self._end()
         self._render_chat()
+        self._react("Explained", "happy")
         if lesson.annotations:
             self.doodles.show_annotations(region, lesson.annotations, where)
 
@@ -396,6 +433,7 @@ class KamiOverlay(QWidget):
             return
         generation = self._begin()
         self._say("_Writing notes..._")
+        self.set_status("Writing notes...", "thinking")
 
         def done(notes: str) -> None:
             if not self._current(generation):
@@ -403,6 +441,7 @@ class KamiOverlay(QWidget):
             self._answer = notes
             self._end()
             self._say(notes)
+            self._react("Notes ready", "happy")
 
         run_in_background(meetings.summarize_transcript, self.client, text,
                           on_done=done, on_error=self._failed_for(generation))
@@ -412,4 +451,5 @@ class KamiOverlay(QWidget):
             if self._current(generation):
                 self._end()
                 self._say(f"**Oops:** {message}")
+                self._react("Oops", "worried")
         return failed

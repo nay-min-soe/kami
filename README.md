@@ -13,10 +13,21 @@ by doodling on it like a teacher with a marker, and (carefully) controls your ap
 
 | Mode                     | What you get                                                                                                                                           | Status                                                             |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| **Ask**            | Type a question in the pop-up panel. The answer streams in as it's written (**Stop** ends it early). It remembers the chat (in memory only) until you click **New chat**; **Copy** puts the last answer (as Markdown) on the clipboard | ✅ Works                                                           |
-| **Explain screen** | Drag a box around anything (a YouTube lesson, code, a chart), then type your question (or just press Enter to have it explained). Kami answers and draws circles, arrows and short notes **on the screen itself**. Doodles fade out after 25 s (**📌 Keep** holds them). Then type follow-up questions about the same capture (text answers, no new screenshot) | ✅ Works (X11; see Wayland notes)                                  |
+| **Ask**            | Type a question in the notch. The answer streams in as it's written (**Stop** ends it early). It remembers the chat (in memory only) until you click **New chat**; **Copy** puts the last answer (as Markdown) on the clipboard | ✅ Works                                                           |
+| **Explain screen** | Drag a box around anything (a YouTube lesson, code, a chart), then type your question (or just press Enter to have it explained). Kami answers and draws circles, arrows and short notes **on the screen itself**. Doodles fade out after 25 s (**Keep** holds them). Then type follow-up questions about the same capture (text answers, no new screenshot) | ✅ Works (X11; see Wayland notes)                                  |
 | **Meeting notes**  | Transcripts, notes and quick research                                                                                                                  | 🟡 Notes from a pasted transcript work; live audio capture is TODO |
 | **App control**    | Hands-free actions inside allowed apps                                                                                                                 | 🟡 Safety gate + "launch app" done; more actions TODO              |
+
+### The notch
+
+Kami lives in a small black pill at the top centre of your screen, with its face on
+the left. Press the hotkey (or click the pill) and it grows into the panel: a status
+card that says what Kami is doing, four chips (**Explain screen**, **Meeting notes**,
+**Clear doodles**, **Keep**), the question box and the answer. **Esc** or the hotkey
+folds it back into the pill and gives the keyboard back to your app. The face reacts as
+it goes: it listens while you type, looks up while thinking, talks while the answer
+streams in, smiles when it's done and looks worried if something fails. If an answer
+finishes while the notch is folded, the pill's face shows it without opening.
 
 ## The safety rule
 
@@ -40,7 +51,7 @@ mkdir -p ~/.config/kami
 cp config.example.toml ~/.config/kami/config.toml
 export OPENROUTER_API_KEY="sk-or-..."     # or KAMI_API_KEY
 
-kami            # starts Kami (tray icon + panel)
+kami            # starts Kami (tray icon + notch)
 ```
 
 Needs Python 3.11+. For **Explain screen**, set `model` in the config to a
@@ -56,8 +67,12 @@ Misspelled keys are reported as warnings in the terminal.
 - **Wayland:** apps can't grab global keys. Add a custom shortcut in your desktop
   settings that runs `kami toggle`. Screen capture on Wayland may also need the
   XDG desktop portal; this is on the roadmap.
+- **Wayland and the notch:** Wayland doesn't let apps place their own windows, so the
+  desktop decides where the notch appears (often not the top centre), and it may not
+  stay above other windows. Esc still folds it, but your app only gets the keyboard
+  back when you click it. It all still works; on X11 the notch is pinned to the top.
 
-`kami toggle` also works on X11 and shows or hides the running instance.
+`kami toggle` also works on X11 and opens or folds the notch.
 
 Kami checks once at start-up which one you're on (`XDG_SESSION_TYPE`, or
 `WAYLAND_DISPLAY` / `DISPLAY` if that's missing). `kami doctor` shows it on the
@@ -65,7 +80,7 @@ Kami checks once at start-up which one you're on (`XDG_SESSION_TYPE`, or
 
 ### Several monitors and HiDPI (X11)
 
-- The panel opens on the monitor under your mouse, and Explain screen works on the
+- The notch opens at the top of the monitor under your mouse, and Explain screen works on the
   monitor you start the drag on (one box can't span two monitors).
 - Big captures are shrunk to 1568 px on the long edge before sending, to save tokens.
 - GNOME and KDE on Xorg use one scale for every monitor. To give Qt a different scale
@@ -79,7 +94,7 @@ Kami checks once at start-up which one you're on (`XDG_SESSION_TYPE`, or
 src/kami/
   cli.py              command line: start, toggle, doctor, --version (no Qt needed)
   doctor.py           `kami doctor` health report
-  app.py              tray icon, panel start-up, single-instance socket (`kami toggle`)
+  app.py              tray icon (Kami's face), start-up, single-instance socket (`kami toggle`)
   config.py           ~/.config/kami/config.toml (validated) + env var API key
   conversation.py     short in-memory chat history for Ask
   geometry.py         screen maths for doodles and captures (no Qt)
@@ -93,7 +108,9 @@ src/kami/
     meetings.py       transcript -> notes (capture TODO)
     app_control.py    action handlers behind the safety gate
   ui/
-    overlay.py        the pop-up panel
+    overlay.py        what's in the notch: Ask, Explain screen, Meeting notes
+    island.py         the notch itself: pill <-> panel animation, status card, chips
+    mascot.py         Kami's face, drawn in code, with moods (thinking, happy, ...)
     region_select.py  drag-to-select screen region
     annotation.py     click-through layer that draws circles, arrows, notes
     confirm.py        the "Kami wants to..." dialog
@@ -109,6 +126,7 @@ The full phase-by-phase plan is in [MILESTONES.md](MILESTONES.md).
 - [ ] Voice output for explanations
 - [ ] Wayland screen capture via the XDG desktop portal
 - [ ] Multi-monitor polish
+- [ ] Pin the notch to the top on Wayland (needs the layer-shell protocol)
 - [ ] More app-control actions (each with its own risk description)
 - [ ] Voice commands for hands-free control
 
