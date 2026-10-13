@@ -22,16 +22,12 @@ from kami.conversation import Conversation
 from kami.geometry import scaled_size
 from kami.llm import LLMClient
 from kami.modes import learning, meetings
+from kami.session import Session, capture_failed_message
 from kami.ui.annotation import AnnotationLayer
 from kami.ui.region_select import RegionSelector
 from kami.ui.worker import run_in_background
 
 log = logging.getLogger(__name__)
-
-CAPTURE_FAILED = (
-    "Kami couldn't capture your screen. On Wayland, screen capture isn't supported yet: "
-    'log in with "Ubuntu on Xorg" (or "GNOME on Xorg") to use Explain screen.'
-)
 
 CONTEXT_READY = "📷 Screen captured · type your question, or press Enter to explain it"
 CONTEXT_CHAT = "📷 Asking about your screen capture · New chat to stop"
@@ -56,10 +52,11 @@ QPushButton:checked { background: #FF6B9A; }
 
 
 class KamiOverlay(QWidget):
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, session: Session) -> None:
         super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.config = config
+        self.session = session   # from session.detect() in app.py; never re-read here
         self.client = LLMClient(config.llm)
         self.selector = RegionSelector()
         self.selector.selected.connect(self._on_region)
@@ -344,7 +341,7 @@ class KamiOverlay(QWidget):
         if not saved or data.isEmpty():
             # Wayland gives Qt an empty pixmap; sending it would just get a 400.
             log.warning("screen capture returned an empty image")
-            self._say(f"**Oops:** {CAPTURE_FAILED}")
+            self._say(f"**Oops:** {capture_failed_message(self.session)}")
             return
         png, where = bytes(data), screen.geometry()
         self.new_chat()   # a capture starts a fresh chat; anything still running is dropped

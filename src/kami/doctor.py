@@ -18,6 +18,7 @@ from kami import __version__
 from kami.config import API_KEY_ENV_VARS, CONFIG_PATH, Config, ConfigError, load_config
 from kami.llm import LLMClient, LLMError
 from kami.logs import default_state_dir
+from kami.session import detect
 
 SYMBOLS = {"ok": "✓", "warn": "⚠", "fail": "✗", "info": "–"}
 TIMEOUT = 5.0
@@ -31,10 +32,11 @@ class Check:
 
 
 def check_session(env) -> Check:
-    session = env.get("XDG_SESSION_TYPE", "")
-    if not session:
-        return Check("Session", "warn", "unknown (XDG_SESSION_TYPE is not set)")
-    return Check("Session", "ok", f"{session} (XDG_SESSION_TYPE)")
+    session = detect(env)
+    if session.kind == "unknown":
+        return Check("Session", "warn",
+                     "unknown (no XDG_SESSION_TYPE, WAYLAND_DISPLAY or DISPLAY)")
+    return Check("Session", "ok", session.describe())
 
 
 def check_config(path: Path) -> tuple[list[Check], Config | None]:
@@ -84,7 +86,7 @@ def check_endpoint_and_model(config: Config, http: httpx.Client | None) -> list[
 
 
 def check_hotkey(env, combo: str) -> Check:
-    if env.get("XDG_SESSION_TYPE") == "wayland":
+    if detect(env).kind == "wayland":
         return Check("Hotkey", "fail", "Wayland can't grab global keys → bind a desktop "
                                        "shortcut to `kami toggle`")
     try:
@@ -99,7 +101,7 @@ def check_hotkey(env, combo: str) -> Check:
 
 
 def check_screen_grab(env) -> Check:
-    session = env.get("XDG_SESSION_TYPE")
+    session = detect(env).kind
     if session == "wayland":
         return Check("Screen grab", "warn", "Wayland: Explain screen may capture a blank image "
                                             "(portal support is Phase 3)")

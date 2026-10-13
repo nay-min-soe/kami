@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Kami calibration target</title>
+<style>
+  html, body { margin: 0; background: #fff; font: 14px sans-serif; color: #333; }
+  p { margin: 16px; max-width: 46em; }
+  #box { position: absolute; left: 120px; top: 120px; width: 400px; height: 300px;
+         outline: 1px solid #e00; background:
+         linear-gradient(#e00, #e00) center / 21px 1px no-repeat,
+         linear-gradient(#e00, #e00) center / 1px 21px no-repeat; }
+  .tick { position: absolute; width: 21px; height: 21px; }
+  .tick::before, .tick::after { content: ""; position: absolute; background: #00f; }
+  .tick::before { left: 10px; top: 0; width: 1px; height: 21px; }
+  .tick::after { top: 10px; left: 0; height: 1px; width: 21px; }
+</style>
+<p>Kami calibration target. Browser zoom must be 100% (Ctrl+0). Start Kami with
+<code>KAMI_DEBUG_DOODLES=1 kami</code>, click <b>Explain screen</b>, and drag from the
+centre of the top-left blue cross to the centre of the bottom-right blue cross. Use the
+GNOME magnifier (Super+Alt+8) to hit them exactly. Each pink circle should sit on a
+blue cross, and the middle one on the red cross.</p>
+<div id="box"></div>
+<div class="tick" style="left:110px;top:110px"></div>
+<div class="tick" style="left:510px;top:110px"></div>
+<div class="tick" style="left:110px;top:410px"></div>
+<div class="tick" style="left:510px;top:410px"></div>

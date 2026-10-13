@@ -60,10 +60,11 @@ Already in the repo.
 
 ## Phase 2 — Explain screen v1 + better Ask (v0.3)
 
-**Goal:** the flagship feature feels finished on X11.
+**Goal:** the flagship feature feels finished on X11. Task plans: [plans/phase-2/](plans/phase-2/README.md)
 
 - [ ] Follow-up questions: after an explanation, the input box asks about the same capture
       (keep the image + history for the session)
+- [ ] Ask your own question after capturing (Enter on an empty box = just explain it)
 - [ ] Ask keeps a short chat history; "New chat" button clears it
 - [ ] Streaming replies, so text appears as it arrives
 - [ ] Multi-monitor and HiDPI: capture and annotations line up on every screen
@@ -76,6 +77,7 @@ Already in the repo.
 
 **Exit criteria**
 - Explain screen works on two monitors with different scaling, verified by hand
+  (on X11 the different scale comes from Qt's `QT_SCREEN_SCALE_FACTORS`)
 - Annotations land within a few pixels of their target on every tested setup
 - A follow-up question about the same region needs no new capture
 
@@ -83,7 +85,7 @@ Already in the repo.
 
 ## Phase 3 — Wayland support (v0.4)
 
-**Goal:** Kami works on a default Ubuntu / Fedora desktop, which is Wayland.
+**Goal:** Kami works on a default Ubuntu / Fedora desktop, which is Wayland. Task plans: [plans/phase-3/](plans/phase-3/README.md)
 
 - [ ] Screen capture through the XDG desktop portal (`org.freedesktop.portal.Screenshot`)
 - [ ] Detect session type once and pick X11 or portal capture
@@ -181,6 +183,8 @@ Already in the repo.
 
 ## Later / not planned yet
 
+- Proper per-monitor scaling (v0.3 uses Qt's `QT_SCREEN_SCALE_FACTORS` workaround on X11)
+- New doodles for follow-up questions (v0.3 follow-ups are text-only)
 - Local models through Ollama for fully offline use
 - macOS / Windows ports
 - Plugins for third-party modes

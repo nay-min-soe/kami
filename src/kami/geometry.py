@@ -5,6 +5,8 @@ coordinates (a monitor left of or above the primary one).
 """
 from __future__ import annotations
 
+import math
+from collections.abc import Callable
 from dataclasses import dataclass
 
 
@@ -53,6 +55,41 @@ def scaled_size(w: int, h: int, max_edge: int) -> tuple[int, int]:
         return w, h
     scale = max_edge / long_edge
     return max(1, round(w * scale)), max(1, round(h * scale))
+
+
+def crop_rect(region: Rect, screens: list[Rect], image_w: int, image_h: int) -> Rect | None:
+    """Where `region` lies in a screenshot of all `screens`, in whole image pixels.
+
+    `region` and `screens` are Qt logical global coordinates. The image is assumed to
+    cover the screens' bounding box at one uniform scale k = image_w / bbox.w (a portal
+    screenshot; measured k = 1.000 on one 100 % screen, other layouts not yet). Edges round
+    outward and are clamped to the image. Returns None when there are no screens, the
+    image height doesn't fit that scale (off by more than max(2 px, 1 %)), or the crop
+    is empty.
+    """
+    if not screens or image_w <= 0 or image_h <= 0:
+        return None
+    left = min(s.x for s in screens)
+    top = min(s.y for s in screens)
+    width = max(s.right for s in screens) - left
+    height = max(s.bottom for s in screens) - top
+    if width <= 0 or height <= 0:
+        return None
+    k = image_w / width
+    if abs(image_h - height * k) > max(2, 0.01 * image_h):
+        return None
+
+    def px(value: float, rounding: Callable[[float], int]) -> int:
+        # round() first so float noise (100 * 1.1 = 110.00000000000001) can't add a pixel
+        return rounding(round(value * k, 6))
+
+    x0 = max(0, px(region.x - left, math.floor))
+    y0 = max(0, px(region.y - top, math.floor))
+    x1 = min(image_w, px(region.right - left, math.ceil))
+    y1 = min(image_h, px(region.bottom - top, math.ceil))
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return Rect(x0, y0, x1 - x0, y1 - y0)
 
 
 def overlaps(a: Rect, b: Rect) -> bool:

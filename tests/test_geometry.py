@@ -2,6 +2,7 @@ import pytest
 
 from kami.geometry import (
     Rect,
+    crop_rect,
     fit_inside,
     layer_rect,
     overlaps,
@@ -119,3 +120,105 @@ def test_place_label_crowded_corner_stacks_without_overlap():
         taken.append(place_label((1900, 5), LABEL, SCREEN, taken))
     assert all(fit_inside(b, SCREEN) == b for b in taken)
     assert not any(overlaps(a, b) for i, a in enumerate(taken) for b in taken[i + 1:])
+
+
+# crop_rect: Qt logical global coordinates -> pixels in the portal's screenshot.
+
+def _inside(crop: Rect, w: int, h: int) -> bool:
+    return 0 <= crop.x and 0 <= crop.y and crop.right <= w and crop.bottom <= h
+
+
+def _whole(crop: Rect) -> bool:
+    return all(float(v).is_integer() for v in (crop.x, crop.y, crop.w, crop.h))
+
+
+def test_crop_single_screen_100():
+    crop = crop_rect(Rect(100, 200, 300, 150), [SCREEN], 1920, 1080)
+    assert crop == Rect(100, 200, 300, 150)
+    assert _whole(crop)
+
+
+def test_crop_single_screen_200():
+    crop = crop_rect(Rect(100, 200, 300, 150), [SCREEN], 3840, 2160)
+    assert crop == Rect(200, 400, 600, 300)
+
+
+def test_crop_fractional_125():
+    # 1536x864 logical at 125 % -> 1920x1080 pixels. 101 * 1.25 = 126.25 and
+    # 51 * 1.25 = 63.75: the edges go outward, never inward.
+    crop = crop_rect(Rect(101, 51, 101, 51), [Rect(0, 0, 1536, 864)], 1920, 1080)
+    assert crop == Rect(126, 63, 127, 65)    # x 126.25..252.5, y 63.75..127.5
+    assert _whole(crop)
+
+
+def test_crop_exact_multiples_have_no_float_creep():
+    # k = 1.1: 100 * 1.1 is 110.00000000000001 in floats, which must not ceil to 111.
+    crop = crop_rect(Rect(50, 50, 50, 50), [Rect(0, 0, 1000, 1000)], 1100, 1100)
+    assert crop == Rect(55, 55, 55, 55)
+
+
+TWO = [Rect(0, 0, 1920, 1080), Rect(1920, 0, 1920, 1080)]
+
+
+def test_crop_second_screen():
+    crop = crop_rect(Rect(2000, 100, 400, 300), TWO, 3840, 1080)
+    assert crop == Rect(2000, 100, 400, 300)
+
+
+def test_crop_whole_screen_of_two():
+    assert crop_rect(TWO[1], TWO, 3840, 1080) == Rect(1920, 0, 1920, 1080)
+    assert crop_rect(TWO[0], TWO, 3840, 1080) == Rect(0, 0, 1920, 1080)
+
+
+def test_crop_negative_origin():
+    screens = [Rect(-1920, 0, 1920, 1080), Rect(0, 0, 1920, 1080)]
+    assert crop_rect(Rect(-1820, 100, 200, 100), screens, 3840, 1080) == Rect(100, 100, 200, 100)
+    assert crop_rect(screens[1], screens, 3840, 1080) == Rect(1920, 0, 1920, 1080)
+
+
+@pytest.mark.parametrize("region", [
+    Rect(1800, 1000, 500, 500),     # past the bottom-right corner
+    Rect(-300, -300, 500, 500),     # past the top-left corner
+    Rect(-10, -10, 5000, 5000),     # bigger than everything
+])
+def test_crop_clamped_to_image(region):
+    crop = crop_rect(region, [SCREEN], 1920, 1080)
+    assert crop is not None
+    assert _inside(crop, 1920, 1080)
+    assert _whole(crop)
+
+
+def test_crop_fully_outside_is_none():
+    assert crop_rect(Rect(5000, 5000, 100, 100), [SCREEN], 1920, 1080) is None
+
+
+@pytest.mark.parametrize("region", [Rect(10, 10, 0, 50), Rect(10, 10, 50, 0),
+                                    Rect(10, 10, -5, 50)])
+def test_crop_empty_region_is_none(region):
+    assert crop_rect(region, [SCREEN], 1920, 1080) is None
+
+
+def test_crop_layout_mismatch_is_none():
+    # A 1080-high image can't be one 1920x1200 screen at k = 1.
+    assert crop_rect(Rect(0, 0, 100, 100), [Rect(0, 0, 1920, 1200)], 1920, 1080) is None
+    # The offscreen 800x800 screen with a 1920x1080 image (the manual check's trap).
+    assert crop_rect(Rect(0, 0, 100, 100), [Rect(0, 0, 800, 800)], 1920, 1080) is None
+
+
+def test_crop_height_tolerance():
+    # Off by 2 px (or 1 % of the height) still lines up; more doesn't.
+    assert crop_rect(Rect(0, 0, 10, 10), [SCREEN], 1920, 1082) is not None
+    assert crop_rect(Rect(0, 0, 10, 10), [SCREEN], 1920, 1092) is None
+
+
+def test_crop_no_screens_is_none():
+    assert crop_rect(Rect(0, 0, 100, 100), [], 1920, 1080) is None
+
+
+@pytest.mark.parametrize("w, h", [(0, 1080), (1920, 0), (-1920, 1080)])
+def test_crop_empty_image_is_none(w, h):
+    assert crop_rect(Rect(0, 0, 100, 100), [SCREEN], w, h) is None
+
+
+def test_crop_zero_size_screen_is_none():
+    assert crop_rect(Rect(0, 0, 100, 100), [Rect(0, 0, 0, 0)], 1920, 1080) is None

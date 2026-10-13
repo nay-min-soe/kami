@@ -13,10 +13,10 @@ passing, so a broken test should block a merge.
 
 ## Files
 
-| File | Change |
-|---|---|
-| `.github/workflows/ci.yml` | new |
-| `README.md` | CI badge + "Development" section mentions CI |
+| File                         | Change                                       |
+| ---------------------------- | -------------------------------------------- |
+| `.github/workflows/ci.yml` | new                                          |
+| `README.md`                | CI badge + "Development" section mentions CI |
 
 ## Implementation
 
@@ -37,15 +37,15 @@ passing, so a broken test should block a merge.
 
 The workflow is the test. Check it both ways:
 
-- [ ] Open a PR with the workflow: both matrix jobs pass.
-- [ ] Push a throwaway commit that breaks `test_safety.py` (e.g. `assert False`):
-      the PR shows a red check. Then close that PR.
+- [X] Open a PR with the workflow: both matrix jobs pass.
+- [X] Push a throwaway commit that breaks `test_safety.py` (e.g. `assert False`):
+  the PR shows a red check. Then close that PR.
 
 ## Done when
 
-- [ ] Both Python versions run on every PR and push to `main`
-- [ ] A failing test turns the check red
-- [ ] (Optional, in GitHub settings) branch protection on `main` requires the check
+- [X] Both Python versions run on every PR and push to `main`
+- [X] A failing test turns the check red
+- [X] (Optional, in GitHub settings) branch protection on `main` requires the check
 
 ## Commit
 

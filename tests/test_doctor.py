@@ -42,6 +42,14 @@ def test_session_check_x11_without_pynput(tmp_path, monkeypatch):
     assert hotkey.status == "fail" and "pip install" in hotkey.detail
 
 
+def test_doctor_unknown_session_warns(tmp_path):
+    checks = report(tmp_path, {"XDG_SESSION_TYPE": "tty"})
+    session = row(checks, "Session")
+    assert session.status == "warn"
+    assert session.detail == "unknown (no XDG_SESSION_TYPE, WAYLAND_DISPLAY or DISPLAY)"
+    assert row(checks, "Screen grab").detail == "unknown session; capture may not work"
+
+
 def test_api_key_source_reported_not_value(tmp_path):
     checks = report(tmp_path, {"OPENROUTER_API_KEY": "sk-secret123"})
     text = doctor.render(checks)

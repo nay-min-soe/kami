@@ -17,6 +17,7 @@ from kami import __version__
 from kami.config import ConfigError, load_config
 from kami.hotkey import HotkeyListener
 from kami.logs import remember_secret, setup_logging
+from kami.session import detect
 from kami.ui.overlay import KamiOverlay
 
 SOCKET_NAME = f"kami-{os.getuid()}"
@@ -61,8 +62,8 @@ def main(argv: list[str] | None = None) -> int:
         print("Kami isn't running. Start it with: kami")
         return 1
 
-    log.info("kami %s starting, session=%s", __version__,
-             os.environ.get("XDG_SESSION_TYPE", "unknown"))
+    session = detect(os.environ, app.platformName())   # once; everything else asks it
+    log.info("kami %s starting, session %s", __version__, session.log_fields())
     try:
         config = load_config()
     except ConfigError as exc:
@@ -73,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
     remember_secret(config.llm.api_key)
     for warning in config.warnings:
         log.warning("config warning: %s", warning)  # stderr handler prints it too
-    overlay = KamiOverlay(config)
+    overlay = KamiOverlay(config, session)
 
     QLocalServer.removeServer(SOCKET_NAME)  # clean up a stale socket after a crash
     server = QLocalServer()
@@ -89,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
 
     server.newConnection.connect(on_connection)
 
-    hotkey = HotkeyListener(config.hotkey)
+    hotkey = HotkeyListener(config.hotkey, session)
     hotkey.triggered.connect(overlay.toggle)
     status = hotkey.start()
     log.info("model=%s hotkey: %s", config.llm.model, status)
