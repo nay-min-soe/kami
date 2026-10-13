@@ -88,6 +88,11 @@ QPushButton#chip:checked { background: #FF6B9A; color: #1E1B2E; }
 """
 
 
+def _native_wayland() -> bool:
+    """Qt runs on Wayland itself (not XWayland): no window placement, masks don't clip."""
+    return QGuiApplication.platformName().startswith("wayland")
+
+
 class Island(QWidget):
     """The notch window. Subclasses fill `body`, add chips, and call expand/collapse."""
 
@@ -223,7 +228,7 @@ class Island(QWidget):
     # ---------- placement ----------
     def place(self, screen: QScreen) -> None:
         """Top centre of `screen`. Native Wayland ignores move(), so there we say so once."""
-        if QGuiApplication.platformName().startswith("wayland"):
+        if _native_wayland():
             if not self._told_wayland:
                 log.info("wayland: the desktop places windows, so the notch isn't pinned")
                 self._told_wayland = True
@@ -285,7 +290,15 @@ class Island(QWidget):
     def _set_progress(self, value) -> None:
         self._progress = progress = float(value)
         shape = self._shape(progress)
-        self.setMask(_mask(shape, self._radius(shape, progress)))
+        mask = _mask(shape, self._radius(shape, progress))
+        if _native_wayland():
+            # A widget mask also limits what Qt repaints, and on Wayland it doesn't clip
+            # what you see, so a shrinking shape left old frames behind. The window's
+            # mask is only the click area there; the content mask below does the clipping.
+            if self.windowHandle() is not None:
+                self.windowHandle().setMask(mask)
+        else:
+            self.setMask(mask)
         k = min(max(progress, 0.0), 1.0)
         small = self._small_face()
         big = self._big_face or small
@@ -319,7 +332,7 @@ class Island(QWidget):
         # activation makes the window manager focus the app below again. On native
         # Wayland a re-show can move the window, so there the pill keeps focus until
         # you click somewhere else.
-        if not self.isActiveWindow() or QGuiApplication.platformName().startswith("wayland"):
+        if not self.isActiveWindow() or _native_wayland():
             return
         self.hide()
         self.show_quietly(True)
@@ -348,7 +361,7 @@ class Island(QWidget):
         super().showEvent(event)
         if self._expanded:   # opened while hidden: the card's layout only exists now
             self._find_big_face()
-            self._set_progress(self._progress)
+        self._set_progress(self._progress)   # also sets the Wayland click area, now it can
         self._sync_mascot()
 
     def hideEvent(self, event) -> None:
