@@ -1,4 +1,4 @@
-"""Starts the Qt app: tray icon, panel, hotkey and the single-instance socket.
+"""Starts the Qt app: tray icon, the notch panel, hotkey and the single-instance socket.
 
 Called by kami.cli for `kami` and `kami toggle` (see cli.py for all commands).
 """
@@ -8,8 +8,8 @@ import logging
 import os
 import sys
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QAction, QIcon, QPainter, QPixmap
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
@@ -18,6 +18,7 @@ from kami.config import ConfigError, load_config
 from kami.hotkey import HotkeyListener
 from kami.logs import remember_secret, setup_logging
 from kami.session import detect
+from kami.ui.mascot import paint_face
 from kami.ui.overlay import KamiOverlay
 
 SOCKET_NAME = f"kami-{os.getuid()}"
@@ -41,10 +42,7 @@ def _tray_icon() -> QIcon:
     pixmap = QPixmap(64, 64)
     pixmap.fill(Qt.transparent)
     p = QPainter(pixmap)
-    p.setRenderHint(QPainter.Antialiasing)
-    p.setBrush(QColor("#FF6B9A"))
-    p.setPen(QColor("#1E1B2E"))
-    p.drawEllipse(4, 4, 56, 56)
+    paint_face(p, QRectF(0, 0, 64, 64))   # the same face as in the notch
     p.end()
     return QIcon(pixmap)
 
