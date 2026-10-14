@@ -20,14 +20,26 @@ by doodling on it like a teacher with a marker, and (carefully) controls your ap
 
 ### The notch
 
-Kami lives in a small black pill at the top centre of your screen, with its face on
-the left. Press the hotkey (or click the pill) and it grows into the panel: a status
-card that says what Kami is doing, four chips (**Explain screen**, **Meeting notes**,
-**Clear doodles**, **Keep**), the question box and the answer. **Esc** or the hotkey
-folds it back into the pill and gives the keyboard back to your app. The face reacts as
-it goes: it listens while you type, looks up while thinking, talks while the answer
-streams in, smiles when it's done and looks worried if something fails. If an answer
-finishes while the notch is folded, the pill's face shows it without opening.
+Kami lives in a small black pill at the top centre of your screen: a shaggy red
+monster with gold horns on the left, four coloured dots on the right. Press the hotkey
+(or click the pill) and it opens into a compact bar: a status card that says what Kami
+is doing, four chips (**Explain screen**, **Meeting notes**, **Clear doodles**,
+**Keep**) and the question box. There's no empty answer box: the answer area and its
+buttons only appear when there's something in them.
+
+Press Enter and the monster eats your question: the words fly out of the box into its
+mouth. While Kami thinks, the notch folds into a smaller pill with just the monster,
+chewing. When the answer starts to arrive, the panel opens again and grows as the
+answer streams in, up to 60% of the screen's height; after that the answer scrolls.
+Click the chewing monster to see your question and **Stop**, or press **Esc** while
+Kami still has the keyboard to stop it. An error always opens the panel, with a worried
+face. If you fold the panel yourself while Kami is busy, the answer waits in the pill
+(the monster hops) instead of opening on you.
+
+**Esc** or the hotkey folds the open panel back into the pill and gives the keyboard
+back to your app. The monster reacts as it goes: it listens while you type, chews
+while thinking, talks while the answer streams in, cheers when it's done and looks
+worried if something fails.
 
 ## The safety rule
 
@@ -94,7 +106,7 @@ Kami checks once at start-up which one you're on (`XDG_SESSION_TYPE`, or
 src/kami/
   cli.py              command line: start, toggle, doctor, --version (no Qt needed)
   doctor.py           `kami doctor` health report
-  app.py              tray icon (Kami's face), start-up, single-instance socket (`kami toggle`)
+  app.py              tray icon (Kami's monster), start-up, single-instance socket (`kami toggle`)
   config.py           ~/.config/kami/config.toml (validated) + env var API key
   conversation.py     short in-memory chat history for Ask
   geometry.py         screen maths for doodles and captures (no Qt)
@@ -109,8 +121,8 @@ src/kami/
     app_control.py    action handlers behind the safety gate
   ui/
     overlay.py        what's in the notch: Ask, Explain screen, Meeting notes
-    island.py         the notch itself: pill <-> panel animation, status card, chips
-    mascot.py         Kami's face, drawn in code, with moods (thinking, happy, ...)
+    island.py         the notch itself: pill <-> panel, chewing pill, height that fits the answer
+    mascot.py         Kami's monster, drawn in code, with moods (chewing, happy, ...)
     region_select.py  drag-to-select screen region
     annotation.py     click-through layer that draws circles, arrows, notes
     confirm.py        the "Kami wants to..." dialog

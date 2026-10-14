@@ -1,13 +1,17 @@
 """The notch: a black pill at the top centre of the screen that grows into Kami's panel.
 
 Collapsed it's a slim pill with Kami's face and four dots, and it doesn't take the
-keyboard from your app. Expanded it's a wide bar: a status card (face, "Kami · Thinking",
-the last two steps), a 2x2 grid of chips, and `body`, where the panel puts its input and
-answer. The window itself never changes size: a mask that follows the drawn shape lets
+keyboard from your app. While Kami thinks it can fold into a smaller "chewing" pill:
+just the monster, chewing. Expanded it's a compact bar: a status card (face, "Kami ·
+Thinking", the last two steps), a 2x2 grid of chips, and `body`, where the panel puts
+its input and answer. The open panel is as tall as its content: fit() measures the
+layout and animates the height there, up to 60% of the screen (then the answer
+scrolls). The window itself is a fixed size: a mask that follows the drawn shape lets
 clicks through everywhere else, so the empty part never blocks the apps below.
 
 X11 first. Native Wayland doesn't let apps place windows, so there the desktop decides
-where the notch goes. It still works, it just isn't pinned to the top.
+where the notch goes. It still works, it just isn't pinned to the top. There the window
+mask is only the click area, so the content is clipped by its own mask instead.
 """
 from __future__ import annotations
 
@@ -53,16 +57,22 @@ from kami.ui.mascot import MOODS, Mascot, paint_face
 log = logging.getLogger(__name__)
 
 PILL_W, PILL_H = 220, 34
-WIDE_W, WIDE_H = 600, 470
+CHEW_W = 56             # the chewing pill: just the monster
+WIDE_W = 560
 RADIUS = 22             # corner radius when open; the pill is fully round
-SLACK_X, SLACK_Y = 12, 22   # spare window room for the expand overshoot
+SLACK_X, SLACK_Y = 12, 28   # spare window room for the expand overshoot
 TOP_GAP = 8             # below the top of the screen (or the top bar)
 PAD = 12
-CARD_H = 100
-FACE_SMALL = 30         # the face in the pill
-FACE_BIG = 72           # the face in the status card
+CARD_H = 80
+FACE_SMALL = 32         # the face's box in the pill
+FACE_BIG = 60           # the face's box in the status card
+FACE_X = 12             # the face's inset from the pill's left end
+MAX_SHARE = 0.6         # the open panel is at most this share of the screen's height
+MIN_CAP = 240
 EXPAND_MS = 280
 COLLAPSE_MS = 200
+GROW_MS = 180
+PILL_MS = 160
 
 SHELL = QColor("#0B0A10")
 RIM = QColor(255, 244, 220, 28)   # a faint edge, so the notch reads on a black wallpaper
@@ -82,7 +92,7 @@ QLabel#header { color: #FFF4DC; font-size: 14px; font-weight: 800; }
 QLabel#step { color: #8A85A0; font-size: 12px; }
 QLabel#stepNow { color: #FFC93C; font-size: 12px; font-weight: 700; }
 QPushButton#chip { background: #2A2640; color: #FFF4DC; border: none; border-radius: 12px;
-                   padding: 7px 10px; font-size: 12px; font-weight: 700; text-align: left; }
+                   padding: 5px 9px; font-size: 12px; font-weight: 700; text-align: left; }
 QPushButton#chip:hover { background: #4A4560; }
 QPushButton#chip:checked { background: #FF6B9A; color: #1E1B2E; }
 """
@@ -93,41 +103,84 @@ def _native_wayland() -> bool:
     return QGuiApplication.platformName().startswith("wayland")
 
 
+class _Tween(QVariantAnimation):
+    """A number that animates to a target. A new target mid-way carries on from wherever
+    the number is now, so nothing jumps."""
+
+    def __init__(self, parent: QWidget, value: float, apply, close: float = 0.5) -> None:
+        super().__init__(parent)
+        self.value = float(value)
+        self._apply = apply
+        self._close = close   # nearer than this to the target counts as there
+        self.valueChanged.connect(self._step)
+
+    @property
+    def running(self) -> bool:
+        return self.state() == QAbstractAnimation.Running
+
+    def _step(self, value) -> None:
+        self.value = float(value)
+        self._apply()
+
+    def go(self, target: float, ms: int, curve: QEasingCurve) -> None:
+        self.stop()
+        if abs(target - self.value) < self._close:
+            self.jump(target)
+            return
+        self.setStartValue(self.value)
+        self.setEndValue(float(target))
+        self.setDuration(ms)
+        self.setEasingCurve(curve)
+        self.start()
+
+    def jump(self, value: float) -> None:
+        self.stop()
+        self.value = float(value)
+        self._apply()
+
+
 class Island(QWidget):
-    """The notch window. Subclasses fill `body`, add chips, and call expand/collapse."""
+    """The notch window. Subclasses fill `body`, add chips, and call expand/collapse/fit."""
 
     pill_clicked = Signal()
 
     def __init__(self) -> None:
         super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(WIDE_W + 2 * SLACK_X, WIDE_H + SLACK_Y)
         self.setCursor(Qt.PointingHandCursor)
-        self._progress = 0.0          # 0 = pill, 1 = open (a little over 1 while overshooting)
         self._expanded = False        # where we're heading, even mid-animation
+        self._chewing = False         # the folded shape is the small chewing pill
+        self._hand_back = True        # give the keyboard back when the fold ends
         self._told_wayland = False
         self._steps: list[tuple[str, str]] = []   # (mark, text), oldest first, at most 2
         self._dot_colors: list[QColor] = []
         self._big_face: QRectF | None = None
-        self._morph = QVariantAnimation(self)
-        self._morph.valueChanged.connect(self._set_progress)
+        self._cap = MIN_CAP           # the tallest the open panel may get on this screen
+        self._open_target = 0.0       # how tall the open panel wants to be
+        self._content_min = 0         # the content's layout never gets squeezed below this
+        self._last_mask: tuple | None = None
+        self._ready = False
+        # 0 = folded, 1 = open (a little over 1 while overshooting)
+        self._morph = _Tween(self, 0.0, self._apply, close=0.001)
         self._morph.finished.connect(self._settle)
+        self._open_h = _Tween(self, CARD_H + 2 * PAD, self._apply)   # the open height
+        self._pill = _Tween(self, PILL_W, self._apply)             # the folded width
         self._build_shell()
         self.mascot = Mascot(self)
         self.mascot.raise_()          # above the cards, so it can travel between pill and card
         self.set_mood("idle")
-        self._set_progress(0.0)
         self.setStyleSheet(ISLAND_STYLE)
+        self._ready = True
+        self._use_screen(QGuiApplication.primaryScreen())
+        self.fit()
 
     # ---------- layout ----------
     def _build_shell(self) -> None:
         # _clip cuts the content to the shape while it morphs; content fades inside it.
         # (A mask and an opacity effect on the same widget draw the mask in the wrong place.)
         self._clip = QWidget(self)
-        self._clip.setGeometry(SLACK_X + PAD, PAD, WIDE_W - 2 * PAD, WIDE_H - 2 * PAD)
         self._clip.hide()
         self.content = QWidget(self._clip)
-        self.content.setGeometry(self._clip.rect())
         self._fade = QGraphicsOpacityEffect(self.content)
         self._fade.setEnabled(False)   # only during the fade: an effect re-renders everything
         self.content.setGraphicsEffect(self._fade)
@@ -136,13 +189,14 @@ class Island(QWidget):
         status.setObjectName("card")
         status.setFixedHeight(CARD_H)
         row = QHBoxLayout(status)
-        row.setContentsMargins(12, 12, 12, 12)
+        edge = (CARD_H - FACE_BIG) // 2
+        row.setContentsMargins(edge, edge, 12, edge)
         row.setSpacing(10)
         self._face_spot = QWidget()   # the mascot itself flies here from the pill
         self._face_spot.setFixedSize(FACE_BIG, FACE_BIG)
         row.addWidget(self._face_spot, 0, Qt.AlignVCenter)
         text = QVBoxLayout()
-        text.setSpacing(4)
+        text.setSpacing(3)
         head = QHBoxLayout()
         head.setSpacing(6)
         self._dot = _Dot()
@@ -167,16 +221,16 @@ class Island(QWidget):
         self._chips.setSpacing(6)
 
         cards = QHBoxLayout()
-        cards.setSpacing(10)
+        cards.setSpacing(8)
         cards.addWidget(status, 1)
         cards.addWidget(chips)
         outer = QVBoxLayout(self.content)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(10)
+        outer.setSpacing(8)
         outer.addLayout(cards)
         self.body = QVBoxLayout()     # the panel's input, answer and buttons go here
-        self.body.setSpacing(10)
-        outer.addLayout(self.body, 1)
+        self.body.setSpacing(8)
+        outer.addLayout(self.body, 1)   # only the answer area in it stretches
 
     def add_chip(self, text: str, color: str) -> QPushButton:
         """A chip in the 2x2 grid with a little coloured Kami icon. Clicks hop the mascot;
@@ -200,6 +254,10 @@ class Island(QWidget):
     @property
     def is_expanded(self) -> bool:
         return self._expanded
+
+    @property
+    def is_chewing(self) -> bool:
+        return self._chewing
 
     def set_status(self, text: str, mood: str) -> None:
         """A new step ("Thinking...") plus the mood that goes with it. The step before
@@ -225,9 +283,10 @@ class Island(QWidget):
         self._header.setText(f"Kami · {MOOD_WORDS[mood]}")
         self._dot.set_color(MOOD_COLORS[mood])
 
-    # ---------- placement ----------
+    # ---------- placement and size ----------
     def place(self, screen: QScreen) -> None:
         """Top centre of `screen`. Native Wayland ignores move(), so there we say so once."""
+        self._use_screen(screen)
         if _native_wayland():
             if not self._told_wayland:
                 log.info("wayland: the desktop places windows, so the notch isn't pinned")
@@ -236,6 +295,42 @@ class Island(QWidget):
         area = screen.availableGeometry()
         self.move(area.x() + (area.width() - self.width()) // 2, area.top() + TOP_GAP)
 
+    def _use_screen(self, screen: QScreen | None) -> None:
+        """The open panel may use up to 60% of this screen's height; size the window to it."""
+        if screen is None:
+            return
+        cap = max(MIN_CAP, int(screen.availableGeometry().height() * MAX_SHARE))
+        if cap == self._cap and self.height() == cap + SLACK_Y:
+            return
+        self._cap = cap
+        self.setFixedSize(WIDE_W + 2 * SLACK_X, cap + SLACK_Y)
+        self._last_mask = None
+        self.fit()
+
+    def fit(self) -> bool:
+        """Measure the content and grow or shrink the open panel to it (animated when you
+        can see it). Returns True when it hit the 60% cap, so the answer has to scroll."""
+        layout = self.content.layout()
+        layout.activate()
+        want = layout.sizeHint().height() + 2 * PAD
+        self._content_min = layout.minimumSize().height()
+        self._open_target = float(min(want, self._cap))
+        self._follow_target()
+        return want > self._cap
+
+    def _follow_target(self) -> None:
+        target = self._open_target
+        if not self._expanded:
+            if not self._morph.running:   # folded: nobody sees it, so just jump
+                self._open_h.jump(target)
+            return                        # folding: applied when the fold ends
+        if not self.isVisible() or self._morph.value < 0.05:
+            self._open_h.jump(target)       # about to open: the morph does the growing
+            return
+        heading = float(self._open_h.endValue()) if self._open_h.running else self._open_h.value
+        if abs(target - heading) > 0.5:   # a new target mid-way carries on from here
+            self._open_h.go(target, GROW_MS, QEasingCurve(QEasingCurve.OutCubic))
+
     # ---------- expand / collapse ----------
     def expand(self) -> None:
         if self._expanded:
@@ -243,16 +338,31 @@ class Island(QWidget):
         self._expanded = True
         self._clip.show()
         self._find_big_face()
+        self._follow_target()
         self.setCursor(Qt.ArrowCursor)
         curve = QEasingCurve(QEasingCurve.OutBack)
         curve.setOvershoot(1.1)   # about 4% past the end, then settle
         self._run_morph(1.0, EXPAND_MS, curve)
 
-    def collapse(self) -> None:
+    def collapse(self, hand_back: bool = True) -> None:
+        """Fold into the pill. hand_back=False keeps the keyboard (Kami is still busy)."""
         if not self._expanded:
             return
         self._expanded = False
+        self._hand_back = hand_back
+        self._open_h.stop()   # no growing while it folds; a new height waits for the end
         self._run_morph(0.0, COLLAPSE_MS, QEasingCurve(QEasingCurve.InOutCubic))
+
+    def set_chewing(self, chewing: bool) -> None:
+        """Fold into the small chewing pill (True) or the normal one with the dots."""
+        if chewing == self._chewing:
+            return
+        self._chewing = chewing
+        width = CHEW_W if chewing else PILL_W
+        if self.isVisible() and (not self._expanded or self._morph.running):
+            self._pill.go(width, PILL_MS, QEasingCurve(QEasingCurve.OutCubic))
+        else:
+            self._pill.jump(width)
 
     def _find_big_face(self) -> None:
         """Where the face goes in the open panel: the empty spot in the status card."""
@@ -261,21 +371,19 @@ class Island(QWidget):
         self._big_face = QRectF(spot.x(), spot.y(), FACE_BIG, FACE_BIG)
 
     def _run_morph(self, end: float, ms: int, curve: QEasingCurve) -> None:
-        self._morph.stop()
         if not self.isVisible():   # nothing to watch: jump straight there
-            self._set_progress(end)
+            self._morph.jump(end)
             self._settle(hand_back=False)
             return
-        self._morph.setStartValue(self._progress)
-        self._morph.setEndValue(end)
-        self._morph.setDuration(ms)
-        self._morph.setEasingCurve(curve)
         self._sync_mascot()
-        self._morph.start()
+        self._morph.go(end, ms, curve)
+        if not self._morph.running:   # already there
+            self._settle(hand_back=False)
 
     def _shape(self, progress: float) -> QRectF:
-        w = min(PILL_W + (WIDE_W - PILL_W) * progress, self.width())
-        h = min(PILL_H + (WIDE_H - PILL_H) * progress, self.height())
+        fold_w = self._pill.value
+        w = min(fold_w + (WIDE_W - fold_w) * progress, self.width())
+        h = min(PILL_H + (self._open_h.value - PILL_H) * progress, self.height())
         return QRectF((self.width() - w) / 2, 0, w, h)
 
     def _radius(self, shape: QRectF, progress: float) -> float:
@@ -283,30 +391,45 @@ class Island(QWidget):
         return min(PILL_H / 2 + (RADIUS - PILL_H / 2) * k, shape.height() / 2)
 
     def _small_face(self) -> QRectF:
-        # The body's centre sits ~58% down the mascot's box; line that up with the pill's.
-        left = (self.width() - PILL_W) / 2 + 6
-        return QRectF(left, PILL_H / 2 - FACE_SMALL * 0.58, FACE_SMALL, FACE_SMALL)
+        # The monster's middle sits ~55% down its box; line that up with the pill's.
+        left = (self.width() - self._pill.value) / 2 + FACE_X
+        return QRectF(left, PILL_H / 2 - FACE_SMALL * 0.55, FACE_SMALL, FACE_SMALL)
 
-    def _set_progress(self, value) -> None:
-        self._progress = progress = float(value)
+    def _apply(self) -> None:
+        """Lay everything out for the current morph, open height and pill width."""
+        if not self._ready:
+            return
+        progress = self._morph.value
         shape = self._shape(progress)
-        mask = _mask(shape, self._radius(shape, progress))
-        if _native_wayland():
-            # A widget mask also limits what Qt repaints, and on Wayland it doesn't clip
-            # what you see, so a shrinking shape left old frames behind. The window's
-            # mask is only the click area there; the content mask below does the clipping.
-            if self.windowHandle() is not None:
-                self.windowHandle().setMask(mask)
-        else:
-            self.setMask(mask)
-        k = min(max(progress, 0.0), 1.0)
+        radius = self._radius(shape, progress)
+        key = (round(shape.x()), round(shape.width()), round(shape.height()), round(radius))
+        if key != self._last_mask:
+            self._last_mask = key
+            mask = _mask(shape, radius)
+            if _native_wayland():
+                # A widget mask also limits what Qt repaints, and on Wayland it doesn't clip
+                # what you see, so a shrinking shape left old frames behind. The window's
+                # mask is only the click area there; the content mask below does the clipping.
+                if self.windowHandle() is not None:
+                    self.windowHandle().setMask(mask)
+            else:
+                self.setMask(mask)
+        inner_w = WIDE_W - 2 * PAD
+        inner_h = max(round(self._open_h.value) - 2 * PAD, self._content_min, 1)
+        if self._clip.height() != inner_h or self._clip.width() != inner_w:
+            self._clip.setGeometry(SLACK_X + PAD, PAD, inner_w, inner_h)
+            self.content.setGeometry(0, 0, inner_w, inner_h)
+        # The face travels in the first 60% of the morph; the text fades in after it,
+        # so the two never overlap.
+        k = min(max(progress / 0.6, 0.0), 1.0)
+        k = k * k * (3 - 2 * k)
         small = self._small_face()
         big = self._big_face or small
         self.mascot.setGeometry(QRectF(
             small.x() + (big.x() - small.x()) * k, small.y() + (big.y() - small.y()) * k,
             small.width() + (big.width() - small.width()) * k,
             small.height() + (big.height() - small.height()) * k).toRect())
-        opacity = min(max((progress - 0.55) / 0.4, 0.0), 1.0)   # fade in once it's open
+        opacity = min(max((progress - 0.6) / 0.35, 0.0), 1.0)
         self._fade.setOpacity(opacity)
         self._fade.setEnabled(opacity < 0.999)
         # The window mask clips drawing on X11 only (on Wayland it's just the click area),
@@ -323,7 +446,8 @@ class Island(QWidget):
         if not self._expanded:
             self._clip.hide()
             self.setCursor(Qt.PointingHandCursor)
-            if hand_back:
+            self._open_h.jump(self._open_target)   # a fit that came in while folding
+            if hand_back and self._hand_back:
                 self._hand_back_focus()
         self._sync_mascot()
 
@@ -347,8 +471,8 @@ class Island(QWidget):
 
     def _sync_mascot(self) -> None:
         """Animate only while you can see it; bob only in the open panel you're using."""
-        moving = self._morph.state() == QAbstractAnimation.Running
-        bob = self._expanded and not moving and self.isActiveWindow()
+        bob = self._expanded and not self._morph.running and self.isActiveWindow()
+        self.mascot.set_compact(not self._expanded)
         self.mascot.set_active(self.isVisible(), bob=bob)
 
     # ---------- events ----------
@@ -361,19 +485,22 @@ class Island(QWidget):
         super().showEvent(event)
         if self._expanded:   # opened while hidden: the card's layout only exists now
             self._find_big_face()
-        self._set_progress(self._progress)   # also sets the Wayland click area, now it can
+        self._last_mask = None   # also sets the Wayland click area, now it can
+        self._apply()
         self._sync_mascot()
 
     def hideEvent(self, event) -> None:
         super().hideEvent(event)
-        if self._morph.state() == QAbstractAnimation.Running:
-            self._morph.stop()
-            self._set_progress(1.0 if self._expanded else 0.0)
+        moving = any(t.running for t in (self._morph, self._open_h, self._pill))
+        if moving:
+            self._pill.jump(CHEW_W if self._chewing else PILL_W)
+            self._morph.jump(1.0 if self._expanded else 0.0)
+            self._open_h.jump(self._open_target)
             self._settle(hand_back=False)   # never re-show a window that is hiding
         self._sync_mascot()
 
     def mousePressEvent(self, event) -> None:
-        if not self._expanded and self._shape(self._progress).contains(event.position()):
+        if not self._expanded and self._shape(self._morph.value).contains(event.position()):
             self.mascot.hop()
             self.pill_clicked.emit()
             return
@@ -382,13 +509,16 @@ class Island(QWidget):
     def paintEvent(self, _event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        shape = self._shape(self._progress)
-        radius = self._radius(shape, self._progress)
+        progress = self._morph.value
+        shape = self._shape(progress)
+        radius = self._radius(shape, progress)
         p.setPen(QPen(RIM, 1))
         p.setBrush(SHELL)
         p.drawRoundedRect(shape.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
-        fade = 1 - min(max(self._progress * 4, 0.0), 1.0)   # the dots go first
-        if fade > 0:
+        # The dots go first when it opens, and when it narrows into the chewing pill.
+        wide = min(max((self._pill.value - CHEW_W) / (PILL_W - CHEW_W), 0.0), 1.0)
+        fade = (1 - min(max(progress * 4, 0.0), 1.0)) * wide * wide
+        if fade > 0.01:
             right = shape.right() - 14
             p.setPen(Qt.NoPen)
             for i, color in enumerate(self._dot_colors[:4]):

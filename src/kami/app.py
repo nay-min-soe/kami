@@ -39,12 +39,17 @@ def _send_toggle() -> bool:
 
 
 def _tray_icon() -> QIcon:
-    pixmap = QPixmap(64, 64)
-    pixmap.fill(Qt.transparent)
-    p = QPainter(pixmap)
-    paint_face(p, QRectF(0, 0, 64, 64))   # the same face as in the notch
-    p.end()
-    return QIcon(pixmap)
+    """Kami's monster, drawn at each size a tray may ask for: the small ones use the
+    simpler drawing (bold horns, eyes, teeth), not a shrunk big one."""
+    icon = QIcon()
+    for size in (16, 22, 24, 32, 48, 64):
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.transparent)
+        p = QPainter(pixmap)
+        paint_face(p, QRectF(0, 0, size, size))   # the same monster as in the notch
+        p.end()
+        icon.addPixmap(pixmap)
+    return icon
 
 
 def main(argv: list[str] | None = None) -> int:
